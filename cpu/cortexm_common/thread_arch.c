@@ -454,6 +454,9 @@ void __attribute__((naked)) __attribute__((used)) isr_pendsv(void) {
 #endif
 
 #ifdef MODULE_CORTEXM_SVC
+
+#include <stdio.h>
+
 void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 {
     /* these two variants do exactly the same, but Cortex-M3 can use Thumb2
@@ -516,6 +519,9 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
         case 1: /* SVC number used by cpu_switch_context_exit */
             SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
             break;
+        case 2:
+            printf("ici\n");
+            break;          
         default:
             DEBUG("svc: unhandled SVC #%u\n", svc_number);
             break;

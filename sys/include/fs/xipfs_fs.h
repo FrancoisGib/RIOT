@@ -119,7 +119,7 @@ int xipfs_extended_driver_new_file(const char *full_path, uint32_t size, uint32_
  * @retval Less than 0 on errors.
  * @retval 0 on success.
  */
-int xipfs_extended_driver_execv(const char *full_path, char *const argv[]);
+int xipfs_extended_driver_execv(const char *full_path, char *const argv[], const char safe);
 
 #ifdef __cplusplus
 }

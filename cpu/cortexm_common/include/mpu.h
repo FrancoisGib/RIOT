@@ -28,10 +28,18 @@
 extern "C" {
 #endif
 
-/**
- * @brief Number of MPU regions available (will vary depending on the Cortex-M version)
- */
-#define MPU_NUM_REGIONS ( (MPU->TYPE & MPU_TYPE_DREGION_Msk) >> MPU_TYPE_DREGION_Pos )
+// /**
+//  * @brief Number of MPU regions available (will vary depending on the Cortex-M version)
+//  */
+// #define MPU_NUM_REGIONS ( (MPU->TYPE & MPU_TYPE_DREGION_Msk) >> MPU_TYPE_DREGION_Pos )
+
+#ifdef __ARM_ARCH_7EM__
+#define MPU_NUM_REGIONS 8
+#elif defined(__ARM_ARCH_8M_MAIN__) || defined(__ARM_ARCH_8M_BASE__)
+#define MPU_NUM_REGIONS 16
+#else
+#define MPU_NUM_REGIONS 0
+#endif
 
 /**
  * @brief Access Permission words
@@ -155,6 +163,11 @@ bool mpu_enabled(void);
  * @return <0 on failure or no MPU present
  */
 int mpu_configure(uint_fast8_t region, uintptr_t base, uint_fast32_t attr);
+
+uint8_t init_mpu(void);
+int8_t configure_region(void* addr, uint32_t size, uint8_t xn, uint8_t ap);
+int8_t configure_region_if_in_range(void* addr, uint32_t size, uint8_t xn, uint8_t ap, void* begin_address, void* end_address);
+void free_region(int8_t region);
 
 #ifdef __cplusplus
 }

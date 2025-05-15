@@ -21,6 +21,7 @@ BLOBS += hello-world.fae
 USEMODULE += shell
 USEMODULE += shell_cmds_default
 USEMODULE += ps
+USEMODULE += cortexm_svc
 
 # Use xipfs file system
 USEMODULE += xipfs

@@ -26,6 +26,7 @@
 #include "periph/flashpage.h"
 #include "shell.h"
 #include "vfs.h"
+#include "mpu.h"
 
 /**
  * @def PANIC
@@ -128,6 +129,8 @@ int execution_handler(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
+    __asm__ volatile ("SVC 2");
+
     int file_handle = vfs_open(FILENAME_OF_HELLO_WORLD_FAE, O_RDONLY, 0);
     if (file_handle < 0) {
 
@@ -167,7 +170,7 @@ int execution_handler(int argc, char **argv) {
         FILENAME_OF_HELLO_WORLD_FAE,
         NULL
     };
-    int ret = xipfs_extended_driver_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv);
+    int ret = xipfs_extended_driver_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv, true);
     if (ret < 0) {
         printf("Failed to execute '%s' : error=%d\n", FILENAME_OF_HELLO_WORLD_FAE, ret);
         return EXIT_FAILURE;
@@ -223,6 +226,9 @@ int main(void)
 
     mount_or_format(&nvme0p0);
     mount_or_format(&nvme0p1);
+
+    init_mpu();
+    mpu_enable();
 
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
 
