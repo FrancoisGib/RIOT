@@ -477,6 +477,18 @@ void hard_fault_default(void)
     defined(CPU_CORE_CORTEX_M7)
 void mem_manage_default(void)
 {
+    uint32_t bfar  = SCB->BFAR;
+    uint32_t mmfar = SCB->MMFAR;
+    uint32_t cfsr  = SCB->CFSR;
+    uint32_t hfsr  = SCB->HFSR;
+    uint32_t dfsr  = SCB->DFSR;
+    uint32_t afsr  = SCB->AFSR;
+    printf("hfsr %lx\n", hfsr);
+    printf("dfsr %lx\n", dfsr);
+    printf("afsr %lx\n", afsr);
+    printf("cfsr %lx\n", cfsr);
+    printf("mmfar %lx\n", mmfar);
+    printf("bfar %lx\n", bfar);
     core_panic(PANIC_MEM_MANAGE, "MEM MANAGE HANDLER");
 }
 

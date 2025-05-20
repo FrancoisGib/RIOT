@@ -21,6 +21,7 @@
 
 #include <fcntl.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "fs/xipfs_fs.h"
 #include "periph/flashpage.h"
@@ -129,7 +130,58 @@ int execution_handler(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    __asm__ volatile ("SVC 2");
+    int file_handle = vfs_open(FILENAME_OF_HELLO_WORLD_FAE, O_RDONLY, 0);
+    if (file_handle < 0) {
+
+        /** There's no executable file yet, let's drop one */
+        int ret = xipfs_extended_driver_new_file(
+            FILENAME_OF_HELLO_WORLD_FAE, SIZEOF_HELLO_WORLD_BIN, 1
+        );
+        if (ret < 0) {
+            printf("xipfs_extended_driver_new_file : failed to create '%s' : error=%d\n",
+                   FILENAME_OF_HELLO_WORLD_FAE, ret);
+            return EXIT_FAILURE;
+        }
+
+        /**
+         * Fill it with blob data
+         * Take care : vfs does not support O_APPEND with vfs_write, only O_WRONLY or O_RDWR
+         */
+        file_handle = vfs_open(FILENAME_OF_HELLO_WORLD_FAE, O_WRONLY, 0);
+        if (file_handle < 0) {
+            printf("vfs_open : failed to open '%s' : error =%d\n",
+                   FILENAME_OF_HELLO_WORLD_FAE, file_handle);
+            return EXIT_FAILURE;
+        }
+
+        ssize_t write_ret = vfs_write(file_handle, hello_world_fae, SIZEOF_HELLO_WORLD_BIN);
+        if (write_ret < 0) {
+            printf("vfs_write : failed to fill '%s' : error=%d\n",
+                   FILENAME_OF_HELLO_WORLD_FAE, write_ret);
+            vfs_close(file_handle);
+            return EXIT_FAILURE;
+        }
+    }
+
+    vfs_close(file_handle);
+
+    char *exec_argv[] = {
+        FILENAME_OF_HELLO_WORLD_FAE,
+        NULL
+    };
+    int ret = xipfs_extended_driver_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv, false);
+    if (ret < 0) {
+        printf("Failed to execute '%s' : error=%d\n", FILENAME_OF_HELLO_WORLD_FAE, ret);
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int execution_safe_handler(int argc, char **argv) {
+
+    (void)argc;
+    (void)argv;
 
     int file_handle = vfs_open(FILENAME_OF_HELLO_WORLD_FAE, O_RDONLY, 0);
     if (file_handle < 0) {
@@ -179,8 +231,21 @@ int execution_handler(int argc, char **argv) {
     return EXIT_SUCCESS;
 }
 
+int print_ctrl(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+
+    uint32_t control;
+    __asm__ volatile ("MRS %0, CONTROL" : "=r"(control));
+    printf("CONTROL : %ld\n", control);
+    return 0;
+}
+
+
 static shell_command_t shell_commands[] = {
     {"exec", "Execute Hello World", execution_handler},
+    {"exec_safe", "Execute Hello World", execution_safe_handler},
+    {"control", "print control", print_ctrl },
     {NULL, NULL, NULL},
 };
 
@@ -219,18 +284,19 @@ static void mount_or_format(vfs_xipfs_mount_t *xipfs_mp)
     printf("vfs_mount: \"%s\": OK\n", xipfs_mp->vfs_mp.mount_point);
 }
 
-
 int main(void)
 {
     char line_buf[SHELL_DEFAULT_BUFSIZE];
+    (void)line_buf;
 
     mount_or_format(&nvme0p0);
     mount_or_format(&nvme0p1);
 
     init_mpu();
     mpu_enable();
-
+    (void)shell_commands;
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
+    // execution_safe_handler(0, NULL);
 
     return 0;
 }

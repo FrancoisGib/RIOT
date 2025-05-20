@@ -456,6 +456,8 @@ void __attribute__((naked)) __attribute__((used)) isr_pendsv(void) {
 #ifdef MODULE_CORTEXM_SVC
 
 #include <stdio.h>
+extern void enter_unprivileged_mode(void *entrypoint, void *return_addr, void *user_stack);
+// extern void enter_unprivileged_mode(void);
 
 void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 {
@@ -514,14 +516,18 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
      * number is the lower byte of the instruction.
      */
     unsigned int svc_number = ((char *)svc_args[6])[-2];
-
     switch (svc_number) {
         case 1: /* SVC number used by cpu_switch_context_exit */
             SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
             break;
         case 2:
-            printf("ici\n");
-            break;          
+        {
+            void* entrypoint = (void*)svc_args[0];
+            void* return_addr = (void*)svc_args[1];
+            void* stack = (void*)svc_args[2];
+            enter_unprivileged_mode(entrypoint, return_addr, stack);
+            break;
+        }      
         default:
             DEBUG("svc: unhandled SVC #%u\n", svc_number);
             break;
