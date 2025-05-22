@@ -500,6 +500,8 @@ void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 #  endif
 }
 
+#include <stdarg.h>
+
 static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
 {
     /* stack frame:
@@ -535,6 +537,13 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
     case 3:
     {
         restore_privileged_mode();
+        break;
+    }
+    case 4:
+    {
+        const char* format = (const char*)svc_args[0];
+        va_list* ap = (va_list*)svc_args[1];
+        vprintf(format, *ap);
         break;
     }
     default:

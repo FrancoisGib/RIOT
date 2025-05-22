@@ -202,6 +202,9 @@ typedef struct exec_ctx_s {
  * Arguments passed to the relocatable binary
  */
     char *argv[XIPFS_EXEC_ARGC_MAX];
+
+    char is_safe_call;
+
     /**
  * Table of function pointers for the libc and RIOT
  * functions used by the relocatable binary
@@ -269,7 +272,7 @@ char *xipfs_infos_file = "/.xipfs_infos";
 static void NAKED
 xipfs_exec_exit(int status UNUSED)
 {
-    __asm__ volatile("SVC #3");
+    // __asm__ volatile("SVC #3");
     __asm__ volatile(
         " ldr r4, =_exec_curr_stack \n"
         " ldr sp, [r4] \n"
@@ -878,6 +881,7 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
+    exec_ctx.is_safe_call = 0;
     _exec_entry_point = thumb(&filp->buf[0]);
     xipfs_exec_enter(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
 
@@ -914,18 +918,19 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
+    exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
 
-    size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start + 1;
-    size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
-    size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
+    size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start;
+    size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start;
+    size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot;
     
     __DMB();
     mpu_disable();
     
-    uint8_t text_region = configure_region(_exec_entry_point, text_size, 0, AP_RO_RO);
-    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, 0, AP_RW_RW);
-    uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, 0, AP_RW_RW);
+    uint8_t text_region = configure_region(_exec_entry_point, text_size, EXC_OK, AP_RO_RO);
+    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, EXC_NO, AP_RW_RW);
+    uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, EXC_NO, AP_RW_RW);
 
     mpu_enable();
     __ISB();
@@ -934,8 +939,6 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     __asm__ volatile("push {r4-r7, lr}");
     xipfs_file_safe_exec_svc(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
     __asm__ volatile("pop {r4-r7, lr}");
-
-    printf("clean after safe exec\n");
 
     mpu_disable();
     free_region(text_region);
@@ -955,7 +958,6 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx UNUSED,
 {
     __asm__ volatile(
         " ldr    r0, =exec_ctx                \n"
-        // " add    r4, r0, #1040                \n" // r4 = top of user stack
         " sub    r4, r2, #32                  \n" // allocate space for stack frame
 
         " str    r0, [r4, #0]                 \n" // R0
@@ -972,6 +974,9 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx UNUSED,
 
         " ldr    r3, =0x01000000              \n" // xPSR: Thumb bit = 1
         " str    r3, [r4, #28]                \n"
+
+        " mov    r3, 3 \n"
+        " msr control, r3 \n"
 
         // Switch to thread mode with PSP
         " msr    psp, r4                      \n" // set PSP to begin of stack frame
@@ -1003,8 +1008,8 @@ void __attribute__((naked)) restore_privileged_mode(void) {
 
         // Switch to thread mode with PSP
         " msr    psp, r0                      \n" // set PSP to begin of stack frame
-        // " mov r0, 2                           \n" //  SPSEL = 1
-        // " msr control, r0                     \n"
+        " mov r0, 2                           \n" //  SPSEL = 1
+        " msr control, r0                     \n"
         " isb                                 \n"
 
         " ldr    r4, =0xFFFFFFFD              \n" // EXC_RETURN to Thread mode using PSP

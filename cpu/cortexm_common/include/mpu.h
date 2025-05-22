@@ -41,6 +41,11 @@ extern "C" {
 #define MPU_NUM_REGIONS 0
 #endif
 
+enum {
+    EXC_OK = 0,
+    EXC_NO = 1,
+};
+
 /**
  * @brief Access Permission words
  */
