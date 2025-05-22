@@ -193,6 +193,7 @@ typedef struct exec_ctx_s {
  * Last word of the stack indicating the top of the stack
  */
     char stktop[4];
+   
     /**
  * Number of arguments passed to the relocatable binary
  */
@@ -244,6 +245,8 @@ static void *_exec_entry_point USED;
  */
 static void *_exec_curr_stack USED;
 
+static void *_former_priv_stack USED;
+
 /**
  * @brief A pointer to a virtual file name
  */
@@ -266,11 +269,11 @@ char *xipfs_infos_file = "/.xipfs_infos";
 static void NAKED
 xipfs_exec_exit(int status UNUSED)
 {
+    __asm__ volatile("SVC #3");
     __asm__ volatile(
         " ldr r4, =_exec_curr_stack \n"
         " ldr sp, [r4] \n"
         " pop {r4, pc} \n");
-    // __asm__ volatile("SVC #3");
 }
 
 /**
@@ -922,16 +925,16 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     mpu_enable();
     // __ISB();
     // __DSB();
-    uint32_t *return_addr = &&end;
-
-    // __asm__ volatile("push {r4-r7, lr}");
-
+    
+    __asm__ volatile("push {r4-r7, lr}");
+    
     // call SVC INT to switch to handler mode to safely change function
-
-    printf("stack top : %p, %p\n", (void *)exec_ctx.stktop, (void *) && end);
+    
+    uint32_t *return_addr = &&end;
+    printf("stack top : %p, %p, %p\n", (void *)exec_ctx.stktop, return_addr, _exec_entry_point);
     __asm__ volatile(
         // "BKPT\n"
-        " push   {r4, %3}                     \n"
+        " push   {%3}                     \n"
         " ldr    r4, =_exec_curr_stack        \n"
         " str    sp, [r4]                     \n" // save current SP
         "MOV r0, %0 \n\t"
@@ -941,19 +944,18 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
         "SVC #2 \n\t"
         :
         : "r"(&exec_ctx.crt0_ctx), "r"(filp->buf), "r"(exec_ctx.stktop), "r"(return_addr)
-        : "r0", "r1", "r2", "r3");
+    );
 
-end:
-    // __asm__ volatile("pop {r4-r7, lr}");
-    printf("clean after safe exec\n");
-    mpu_disable();
-    free_region(text_region);
-    free_region(data_region);
-    free_region(stack_region);
-    mpu_enable();
-
-    (void)filp;
-    (void)argv;
+    end:
+    {
+        __asm__ volatile("pop {r4-r7, lr}");
+        printf("clean after safe exec\n");
+        mpu_disable();
+        free_region(text_region);
+        free_region(data_region);
+        free_region(stack_region);
+        mpu_enable();
+    }
     return 0;
 }
 
@@ -966,13 +968,13 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx UNUSED,
 {
     __asm__ volatile(
         " ldr    r0, =exec_ctx                \n"
-        " add    r4, r0, #1040                \n" // r4 = top of user stack
-        " sub    r4, r4, #32                  \n" // allocate space for stack frame
+        // " add    r4, r0, #1040                \n" // r4 = top of user stack
+        " sub    r4, r2, #32                  \n" // allocate space for stack frame
 
         " str    r0, [r4, #0]                 \n" // R0
-        " str    r1, [r4, #4]                 \n" // R1
-        " str    r2, [r4, #8]                 \n" // R2
         " movs   r3, #0                       \n"
+        " str    r3, [r4, #4]                 \n" // R1
+        " str    r3, [r4, #8]                 \n" // R2
         " str    r3, [r4, #12]                \n" // R3
         " str    r3, [r4, #16]                \n" // R12
         " str    r3, [r4, #20]                \n" // LR
@@ -990,4 +992,35 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx UNUSED,
 
         " ldr    r4, =0xFFFFFFFD              \n" // EXC_RETURN to Thread mode using PSP
         " bx     r4                           \n");
+}
+
+void __attribute__((naked)) restore_privileged_mode(void) {
+    __asm__ volatile (
+        " ldr r0, =_exec_curr_stack \n"
+        " ldr r0, [r0] \n"
+        " ldr r4, [r0]\n"
+        " sub    r0, #28                      \n" // allocate space for stack frame
+
+        " movs   r3, #0                       \n"
+        " str    r3, [r0, #0]                 \n" // R0
+        " str    r3, [r0, #4]                 \n" // R1
+        " str    r3, [r0, #8]                 \n" // R2
+        " str    r3, [r0, #12]                \n" // R3
+        " str    r3, [r0, #16]                \n" // R12
+        " str    r3, [r0, #20]                \n" // LR
+
+        " str    r4, [r0, #24]                \n" // PC
+
+        " ldr    r3, =0x01000000              \n" // xPSR: Thumb bit = 1
+        " str    r3, [r0, #28]                \n"
+
+        // Switch to thread mode with PSP
+        " msr    psp, r0                      \n" // set PSP to begin of stack frame
+        // " mov r0, 2                           \n" //  SPSEL = 1
+        // " msr control, r0                     \n"
+        " isb                                 \n"
+
+        " ldr    r4, =0xFFFFFFFD              \n" // EXC_RETURN to Thread mode using PSP
+        " bx     r4                           \n"
+    );
 }

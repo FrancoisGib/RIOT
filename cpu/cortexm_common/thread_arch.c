@@ -461,7 +461,8 @@ void __attribute__((naked)) __attribute__((used)) isr_pendsv(void)
 extern void enter_unprivileged_mode(void *crt0_ctx,
                                     void *entry_point,
                                     void *stack_top, void *return_addr);
-// extern void enter_unprivileged_mode(void);
+
+void restore_privileged_mode(void);
 
 void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 {
@@ -529,6 +530,11 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
         void *stack_top = (void *)svc_args[2];
         void *return_addr = (void *)svc_args[3];
         enter_unprivileged_mode(crt0_ctx, entry_point, stack_top, return_addr);
+        break;
+    }
+    case 3:
+    {
+        restore_privileged_mode();
         break;
     }
     default:
