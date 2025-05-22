@@ -896,6 +896,15 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx,
                                    void *stack_top,
                                    void *return_addr);
 
+void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* filp_buf UNUSED, void* stack_top UNUSED) {
+    __asm__ volatile(
+        " push   {lr}                     \n"
+        " ldr    r4, =_exec_curr_stack        \n"
+        " str    sp, [r4]                     \n" // save current SP
+        "SVC #2 \n"
+    );
+}
+
 int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 {
     if (xipfs_file_filp_check(filp) < 0) {
@@ -905,57 +914,35 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
-
     _exec_entry_point = thumb(&filp->buf[0]);
-    // off_t file_size = xipfs_file_get_size(filp);
 
-    // __DMB();
-    mpu_disable();
     size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start + 1;
     size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
     size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
+    
+    __DMB();
+    mpu_disable();
+    
     uint8_t text_region = configure_region(_exec_entry_point, text_size, 0, AP_RO_RO);
     uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, 0, AP_RW_RW);
     uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, 0, AP_RW_RW);
 
-    (void)text_region;
-    (void)data_region;
-    (void)stack_region;
-
     mpu_enable();
-    // __ISB();
-    // __DSB();
+    __ISB();
+    __DSB();
     
     __asm__ volatile("push {r4-r7, lr}");
-    
-    // call SVC INT to switch to handler mode to safely change function
-    
-    uint32_t *return_addr = &&end;
-    printf("stack top : %p, %p, %p\n", (void *)exec_ctx.stktop, return_addr, _exec_entry_point);
-    __asm__ volatile(
-        // "BKPT\n"
-        " push   {%3}                     \n"
-        " ldr    r4, =_exec_curr_stack        \n"
-        " str    sp, [r4]                     \n" // save current SP
-        "MOV r0, %0 \n\t"
-        "MOV r1, %1 \n\t"
-        "MOV r2, %2 \n\t"
-        "MOV r3, %3 \n\t"
-        "SVC #2 \n\t"
-        :
-        : "r"(&exec_ctx.crt0_ctx), "r"(filp->buf), "r"(exec_ctx.stktop), "r"(return_addr)
-    );
+    xipfs_file_safe_exec_svc(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
+    __asm__ volatile("pop {r4-r7, lr}");
 
-    end:
-    {
-        __asm__ volatile("pop {r4-r7, lr}");
-        printf("clean after safe exec\n");
-        mpu_disable();
-        free_region(text_region);
-        free_region(data_region);
-        free_region(stack_region);
-        mpu_enable();
-    }
+    printf("clean after safe exec\n");
+
+    mpu_disable();
+    free_region(text_region);
+    free_region(data_region);
+    free_region(stack_region);
+    mpu_enable();
+    
     return 0;
 }
 
