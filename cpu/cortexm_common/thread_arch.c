@@ -458,12 +458,6 @@ void __attribute__((naked)) __attribute__((used)) isr_pendsv(void)
 
 #  include <stdio.h>
 
-extern void enter_unprivileged_mode(void *crt0_ctx,
-                                    void *entry_point,
-                                    void *stack_top, void *return_addr);
-
-void restore_privileged_mode(void);
-
 void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 {
     /* these two variants do exactly the same, but Cortex-M3 can use Thumb2
@@ -500,7 +494,23 @@ void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 #  endif
 }
 
-#include <stdarg.h>
+#ifdef MODULE_XIPFS
+
+#ifndef XIPFS_ENTER_SVC_NUMBER
+#define XIPFS_ENTER_SVC_NUMBER 2
+#endif
+
+#ifndef XIPFS_SYSCALL_SVC_NUMBER
+#define XIPFS_SYSCALL_SVC_NUMBER 3
+#endif
+
+
+extern int xipfs_syscall_dispatcher(unsigned int *svc_args);
+extern void xipfs_exec_enter_safe(void *crt0_ctx,
+                                    void *entry_point,
+                                    void *stack_top, void *return_addr);
+
+#endif
 
 static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
 {
@@ -523,32 +533,25 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
      */
     unsigned int svc_number = ((char *)svc_args[6])[-2];
     switch (svc_number) {
-    case 1: /* SVC number used by cpu_switch_context_exit */
-        SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
-        break;
-    case 2: {
-        void *crt0_ctx = (void *)svc_args[0];
-        void *entry_point = (void *)svc_args[1];
-        void *stack_top = (void *)svc_args[2];
-        void *return_addr = (void *)svc_args[3];
-        enter_unprivileged_mode(crt0_ctx, entry_point, stack_top, return_addr);
-        break;
-    }
-    case 3:
-    {
-        restore_privileged_mode();
-        break;
-    }
-    case 4:
-    {
-        const char* format = (const char*)svc_args[0];
-        va_list* ap = (va_list*)svc_args[1];
-        vprintf(format, *ap);
-        break;
-    }
-    default:
-        DEBUG("svc: unhandled SVC #%u\n", svc_number);
-        break;
+        case 1: /* SVC number used by cpu_switch_context_exit */
+            SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
+            break;
+#ifdef MODULE_XIPFS
+        case XIPFS_ENTER_SVC_NUMBER: {
+            void *crt0_ctx = (void *)svc_args[0];
+            void *entry_point = (void *)svc_args[1];
+            void *stack_top = (void *)svc_args[2];
+            void *return_addr = (void *)svc_args[3];
+            xipfs_exec_enter_safe(crt0_ctx, entry_point, stack_top, return_addr);
+            break;
+        }
+        case XIPFS_SYSCALL_SVC_NUMBER:
+            xipfs_syscall_dispatcher(svc_args);
+            break;
+#endif
+        default:
+            DEBUG("svc: unhandled SVC #%u\n", svc_number);
+            break;
     }
 }
 

@@ -39,6 +39,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 /*
  * xipfs includes
@@ -73,6 +74,20 @@
  */
 #define EXEC_STACKSIZE_DEFAULT 1024
 
+/**
+ * @def XIPFS_ENTER_SVC_NUMBER
+ *
+ * @brief The svc number of the xipfs exec enter
+ */
+#define XIPFS_ENTER_SVC_NUMBER 2
+
+/**
+ * @def XIPFS_SYSCALL_SVC_NUMBER
+ *
+ * @brief The svc number of the xipfs syscalls dispatcher
+ */
+#define XIPFS_SYSCALL_SVC_NUMBER 3
+
 #ifdef __GNUC__
 /**
  * @internal
@@ -105,6 +120,24 @@
 #else
 #  error "sys/fs/file: Your compiler does not support GNU extensions"
 #endif /* __GNUC__ */
+
+/**
+ * @internal
+ *
+ * @def STR_HELPER
+ *
+ * @brief Used for preprocessing in asm statements
+ */
+#define STR_HELPER(x) #x
+/**
+ * @internal
+ *
+ * @def STR
+ *
+ * @brief Used for preprocessing in asm statements
+ */
+#define STR(x) STR_HELPER(x)
+
 
 /*
  * Internal structure
@@ -272,7 +305,6 @@ char *xipfs_infos_file = "/.xipfs_infos";
 static void NAKED
 xipfs_exec_exit(int status UNUSED)
 {
-    // __asm__ volatile("SVC #3");
     __asm__ volatile(
         " ldr r4, =_exec_curr_stack \n"
         " ldr sp, [r4] \n"
@@ -902,10 +934,10 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx,
 
 void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* filp_buf UNUSED, void* stack_top UNUSED) {
     __asm__ volatile(
-        " push   {lr}                     \n"
+        " push   {lr}                         \n"
         " ldr    r4, =_exec_curr_stack        \n"
         " str    sp, [r4]                     \n" // save current SP
-        "SVC #2 \n"
+        "SVC #"STR(XIPFS_ENTER_SVC_NUMBER)"   \n"
     );
 }
 
@@ -949,10 +981,7 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     return 0;
 }
 
-#define EXC_RETURN_THREAD_MODE_PSP 0xFFFFFFFD
-#define EXC_RETURN_THREAD_MODE_MSP 0xFFFFFFF9
-
-void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx UNUSED,
+void NAKED xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
                                    void *entry_point UNUSED,
                                    void *stack_top UNUSED, void *return_addr UNUSED)
 {
@@ -986,7 +1015,7 @@ void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx UNUSED,
         " bx     r4                           \n");
 }
 
-void __attribute__((naked)) restore_privileged_mode(void) {
+void NAKED restore_privileged_mode(void) {
     __asm__ volatile (
         " ldr r0, =_exec_curr_stack \n"
         " ldr r0, [r0] \n"
@@ -1015,4 +1044,25 @@ void __attribute__((naked)) restore_privileged_mode(void) {
         " ldr    r4, =0xFFFFFFFD              \n" // EXC_RETURN to Thread mode using PSP
         " bx     r4                           \n"
     );
+}
+
+int xipfs_syscall_dispatcher(unsigned int *svc_args)
+{
+    unsigned int syscall_number = svc_args[0];
+    switch (syscall_number) {
+        case SYSCALL_EXIT:
+        {
+            restore_privileged_mode();
+            break;
+        }
+        case SYSCALL_PRINTF:
+        {
+            const char* format = (const char*)svc_args[1];
+            va_list* ap = (va_list*)svc_args[2];
+            return vprintf(format, *ap);
+        }
+        default:
+            break;
+    }
+    return 0;
 }
