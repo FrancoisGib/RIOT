@@ -97,14 +97,6 @@
 #define EXC_RETURN_THREAD_MODE_PSP 0xFFFFFFFD
 
 /**
- * @def EXC_RETURN_THREAD_MODE_MSP
- *
- * @brief The exec return adress to return from handler mode
- * to thread mode with msp stack 
- */
-#define EXC_RETURN_THREAD_MODE_MSP 0xFFFFFFF9
-
-/**
  * @def XPSR_THUMB_MODE
  *
  * @brief The mask used during context switch to set xPSR to thumb mode,
