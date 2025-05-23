@@ -1113,10 +1113,8 @@ static void init_isr_stack_frame(isr_stack_frame_t *frame) {
  * otherwise an hard fault exception will occur
  * 
  * @brief Switch to the context specified with the exception frame
- * in parameter, restore the former isr stack start.
+ * stored in the last 32 bytes of the stack parameter and restore the former isr stack start.
  * It uses the arm exec return mechanism to switch safely between user / privileged mode
- *
- * @param frame A pointer to the exception stack frame used to switch context
  * 
  * @param stack A pointer to the stack to use after the context switch
  * 
@@ -1125,25 +1123,16 @@ static void init_isr_stack_frame(isr_stack_frame_t *frame) {
  * @param isr_stack_start A pointer to the exception stack top, we must restore it because we never 
  * return from the exception
  */
-static void NAKED xipfs_switch_context(isr_stack_frame_t *frame UNUSED,
-                                void *stack UNUSED,
-                                control_register_mode_e control UNUSED,
-                                void *isr_stack_top UNUSED) {
+static void NAKED xipfs_switch_context(void *stack UNUSED,
+                                       control_register_mode_e control UNUSED,
+                                       void *isr_stack_top UNUSED) {
     __asm__ volatile (
         " cpsid i                                    \n" // disable interrupts
 
-        // Copy stack frame from isr stack to new psp stack
-        " sub r1, 32                                 \n" // allocate stack frame on user stack
-        " push {r4-r11}                              \n" // save r4-r11 registers
-        " ldm r0!, {r4-r11}                          \n" // copy frame into r4-r11
-        " stm r1!, {r4-r11}                          \n" // paste r4-r11 into user_stack to build return frame
-        " pop {r4-r11}                               \n" // restore r4-r11 registers
-        " sub r1, 32                                 \n" // need to sub because we restored the former stack register with pop
-
-        // Switch to thread mode with PSP
-        " msr psp, r1                                \n" // set psp to begin of stack frame
-        " msr msp, r3                                \n" // restore isr stack to end because we never return from the interrupt
-        " msr control, r2                            \n" // set the control register to control arg
+        // Switch to thread mode with psp stack
+        " msr psp, r0                                \n" // set psp to begin of stack frame
+        " msr msp, r2                                \n" // restore isr stack to end because we never return from the interrupt
+        " msr control, r1                            \n" // set the control register to control arg
         " isb                                        \n" 
         " ldr r0, ="STR(EXC_RETURN_THREAD_MODE_PSP)" \n" // exec return to thread mode using psp
 
@@ -1171,12 +1160,13 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
                                    void *entrypoint UNUSED,
                                    void *stack UNUSED)
 {
-    isr_stack_frame_t frame;
-    init_isr_stack_frame(&frame);
-    frame.r0 = (uint32_t)crt0_ctx;
-    frame.pc = (uint32_t)entrypoint;
+    stack -= 32;
+    isr_stack_frame_t *frame = (isr_stack_frame_t *)stack;
+    init_isr_stack_frame(frame);
+    frame->r0 = (uint32_t)crt0_ctx;
+    frame->pc = (uint32_t)entrypoint;
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(&frame, stack, CTRL_USER_PSP, isr_stack_top);
+    xipfs_switch_context(stack, CTRL_USER_PSP, isr_stack_top);
 }
 
 /**
@@ -1190,13 +1180,13 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
  */
 static void xipfs_exec_exit_safe(void)
 {
-    isr_stack_frame_t frame;
-    init_isr_stack_frame(&frame);
     uint32_t return_address = *(uint32_t *)_exec_curr_stack;
-    _exec_curr_stack += 4; // deallocate return address 4 bytes
-    frame.pc = return_address;
+    _exec_curr_stack -= 28; // not 32 because we deallocate the return address of 4 bytes
+    isr_stack_frame_t* frame = (isr_stack_frame_t *)_exec_curr_stack;
+    init_isr_stack_frame(frame);
+    frame->pc = return_address;
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(&frame, _exec_curr_stack, CTRL_PRIV_PSP, isr_stack_top);
+    xipfs_switch_context(_exec_curr_stack, CTRL_PRIV_PSP, isr_stack_top);
 }
 
 /**
