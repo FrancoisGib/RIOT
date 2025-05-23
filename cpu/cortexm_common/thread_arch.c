@@ -277,6 +277,11 @@ void *thread_isr_stack_start(void)
     return (void *)&_sstack;
 }
 
+void *thread_isr_stack_end(void)
+{
+    return (void *)&_estack;
+}
+
 void NORETURN cpu_switch_context_exit(void)
 {
 #ifdef MODULE_CORTEXM_FPU
@@ -508,7 +513,7 @@ void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 extern int xipfs_syscall_dispatcher(unsigned int *svc_args);
 extern void xipfs_exec_enter_safe(void *crt0_ctx,
                                     void *entry_point,
-                                    void *stack_top, void *return_addr);
+                                    void *stack_top);
 
 #endif
 
@@ -542,8 +547,7 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
             void *crt0_ctx = (void *)svc_args[0];
             void *entry_point = (void *)svc_args[1];
             void *stack_top = (void *)svc_args[2];
-            void *return_addr = (void *)svc_args[3];
-            xipfs_exec_enter_safe(crt0_ctx, entry_point, stack_top, return_addr);
+            xipfs_exec_enter_safe(crt0_ctx, entry_point, stack_top);
             break;
         }
         case XIPFS_SYSCALL_SVC_NUMBER:

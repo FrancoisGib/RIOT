@@ -88,6 +88,12 @@
  */
 #define XIPFS_SYSCALL_SVC_NUMBER 3
 
+#define EXC_RETURN_THREAD_MODE_PSP 0xFFFFFFFD
+
+#define EXC_RETURN_THREAD_MODE_MSP 0xFFFFFFF9
+
+#define XPSR_THUMB_MODE 0x1000000
+
 #ifdef __GNUC__
 /**
  * @internal
@@ -137,6 +143,25 @@
  * @brief Used for preprocessing in asm statements
  */
 #define STR(x) STR_HELPER(x)
+
+typedef struct {
+    uint32_t r0;
+    uint32_t r1;
+    uint32_t r2;
+    uint32_t r3;
+    uint32_t r12;
+    uint32_t lr;
+    uint32_t pc;
+    uint32_t xpsr;
+} isr_stack_frame_t;
+
+enum control_register_mode_e {
+    CTRL_PRIV_MSP = 0,
+    CTRL_USER_MSP = 1,
+    CTRL_PRIV_PSP = 2,
+    CTRL_USER_PSP = 3
+};
+
 
 
 /*
@@ -925,6 +950,8 @@ extern char _fw_rom_length;
 extern char _rom_start_addr;
 extern char _ram_length;
 
+extern uint32_t _estack;
+
 void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx,
                                    void *entry_point,
                                    void *stack_top,
@@ -935,7 +962,7 @@ void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* filp_buf UNUS
         " push   {lr}                         \n"
         " ldr    r4, =_exec_curr_stack        \n"
         " str    sp, [r4]                     \n" // save current SP
-        "SVC #"STR(XIPFS_ENTER_SVC_NUMBER)"   \n"
+        " svc #"STR(XIPFS_ENTER_SVC_NUMBER)"   \n"
     );
 }
 
@@ -967,7 +994,7 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     __DSB();
     
     __asm__ volatile("push {r4-r7, lr}");
-    xipfs_file_safe_exec_svc(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
+    xipfs_file_safe_exec_svc(&exec_ctx.crt0_ctx, _exec_entry_point, exec_ctx.stktop);
     __asm__ volatile("pop {r4-r7, lr}");
 
     mpu_disable();
@@ -979,69 +1006,58 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     return 0;
 }
 
-void NAKED xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
-                                   void *entry_point UNUSED,
-                                   void *stack_top UNUSED, void *return_addr UNUSED)
-{
-    __asm__ volatile(
-        " ldr    r0, =exec_ctx                \n"
-        " sub    r4, r2, #32                  \n" // allocate space for stack frame
-
-        " str    r0, [r4, #0]                 \n" // R0
-        " movs   r3, #0                       \n"
-        " str    r3, [r4, #4]                 \n" // R1
-        " str    r3, [r4, #8]                 \n" // R2
-        " str    r3, [r4, #12]                \n" // R3
-        " str    r3, [r4, #16]                \n" // R12
-        " str    r3, [r4, #20]                \n" // LR
-
-        " ldr    r2, =_exec_entry_point       \n"
-        " ldr    r2, [r2]                     \n"
-        " str    r2, [r4, #24]                \n" // PC
-
-        " ldr    r3, =0x01000000              \n" // xPSR: Thumb bit = 1
-        " str    r3, [r4, #28]                \n"
-
-        " mov    r3, 3 \n"
-        " msr control, r3 \n"
-
-        // Switch to thread mode with PSP
-        " msr    psp, r4                      \n" // set PSP to begin of stack frame
-        " isb                                 \n"
-
-        " ldr    r4, =0xFFFFFFFD              \n" // EXC_RETURN to Thread mode using PSP
-        " bx     r4                           \n");
+void init_frame(isr_stack_frame_t *frame) {
+    memset(frame, 0, 28);
+    frame->xpsr = XPSR_THUMB_MODE;    
 }
 
-void NAKED restore_privileged_mode(void) {
+void NAKED switch_to(isr_stack_frame_t *frame UNUSED, void *user_stack UNUSED, uint8_t control UNUSED, void *isr_stack_start UNUSED) {
     __asm__ volatile (
-        " ldr r0, =_exec_curr_stack \n"
-        " ldr r0, [r0] \n"
-        " ldr r4, [r0]\n"
-        " sub    r0, #28                      \n" // allocate space for stack frame
+        " cpsid i                                    \n" // disable interrupts
 
-        " movs   r3, #0                       \n"
-        " str    r3, [r0, #0]                 \n" // R0
-        " str    r3, [r0, #4]                 \n" // R1
-        " str    r3, [r0, #8]                 \n" // R2
-        " str    r3, [r0, #12]                \n" // R3
-        " str    r3, [r0, #16]                \n" // R12
-        " str    r3, [r0, #20]                \n" // LR
-
-        " str    r4, [r0, #24]                \n" // PC
-
-        " ldr    r3, =0x01000000              \n" // xPSR: Thumb bit = 1
-        " str    r3, [r0, #28]                \n"
+        // Copy stack frame
+        " sub r1, 32                                 \n" // allocate stack frame on user stack
+        " push {r4-r11}                              \n" // save r4-r11 registers
+        " ldm r0!, {r4-r11}                          \n" // copy frame into r4-r11
+        " stm r1!, {r4-r11}                          \n" // paste r4-r11 into user_stack to build return frame
+        " pop {r4-r11}                               \n" // restore r4-r11 registers
+        " sub r1, 32                                 \n" // need to sub because we restored the former stack register with pop
 
         // Switch to thread mode with PSP
-        " msr    psp, r0                      \n" // set PSP to begin of stack frame
-        " mov r0, 2                           \n" //  SPSEL = 1
-        " msr control, r0                     \n"
-        " isb                                 \n"
+        " msr psp, r1                                \n" // set psp to begin of stack frame
+        " msr msp, r3                                \n" // restore isr stack to end because we never return from the interrupt
+        " msr control, r2                            \n" // set the control register to control arg
+        " isb                                        \n" 
+        " ldr r0, ="STR(EXC_RETURN_THREAD_MODE_PSP)" \n" // exec return to thread mode using psp
 
-        " ldr    r4, =0xFFFFFFFD              \n" // EXC_RETURN to Thread mode using PSP
-        " bx     r4                           \n"
+        " cpsie i                                    \n" // enable interrupts
+        " bx r0                                      \n" // jump to exec return to thread mode with psp
     );
+}
+
+extern void *thread_isr_stack_end(void);
+
+void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
+                                   void *entrypoint UNUSED,
+                                   void *stack_top UNUSED)
+{
+    isr_stack_frame_t frame;
+    init_frame(&frame);
+    frame.r0 = (uint32_t)crt0_ctx;
+    frame.pc = (uint32_t)entrypoint;
+    void *isr_stack_end = thread_isr_stack_end();
+    switch_to(&frame, stack_top, CTRL_USER_PSP, isr_stack_end);
+}
+
+void xipfs_exec_exit_safe(void)
+{
+    isr_stack_frame_t frame;
+    init_frame(&frame);
+    uint32_t return_address = *(uint32_t *)_exec_curr_stack;
+    _exec_curr_stack += 4; // deallocate return address 4 bytes
+    frame.pc = return_address;
+    void *isr_stack_end = thread_isr_stack_end();
+    switch_to(&frame, _exec_curr_stack, CTRL_PRIV_PSP, isr_stack_end);
 }
 
 int xipfs_syscall_dispatcher(unsigned int *svc_args)
@@ -1050,7 +1066,7 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
     switch (syscall_number) {
         case SYSCALL_EXIT:
         {
-            restore_privileged_mode();
+            xipfs_exec_exit_safe();
             break;
         }
         case SYSCALL_PRINTF:
