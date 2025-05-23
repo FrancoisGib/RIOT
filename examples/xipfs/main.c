@@ -169,7 +169,7 @@ int execution_handler(int argc, char **argv) {
         FILENAME_OF_HELLO_WORLD_FAE,
         NULL
     };
-    int ret = xipfs_extended_driver_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv, false);
+    int ret = xipfs_extended_driver_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv);
     if (ret < 0) {
         printf("Failed to execute '%s' : error=%d\n", FILENAME_OF_HELLO_WORLD_FAE, ret);
         return EXIT_FAILURE;
@@ -222,7 +222,7 @@ int execution_safe_handler(int argc, char **argv) {
         FILENAME_OF_HELLO_WORLD_FAE,
         NULL
     };
-    int ret = xipfs_extended_driver_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv, true);
+    int ret = xipfs_extended_driver_safe_execv(FILENAME_OF_HELLO_WORLD_FAE, exec_argv);
     if (ret < 0) {
         printf("Failed to execute '%s' : error=%d\n", FILENAME_OF_HELLO_WORLD_FAE, ret);
         return EXIT_FAILURE;

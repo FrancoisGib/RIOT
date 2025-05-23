@@ -41,7 +41,7 @@ static int _execute_file_handler(int argc, char **argv) {
         execute_file_handler_args[i-1] = argv[i];
     }
 
-    int ret = xipfs_extended_driver_execv(argv[1], execute_file_handler_args, false);
+    int ret = xipfs_extended_driver_execv(argv[1], execute_file_handler_args);
     if (ret != 0) {
         printf("Failed to execute '%s', error=%d\n", argv[1], ret);
         return 2;
@@ -64,7 +64,7 @@ static int _execute_file_handler_safe(int argc, char **argv) {
         execute_file_handler_args[i-1] = argv[i];
     }
 
-    int ret = xipfs_extended_driver_execv(argv[1], execute_file_handler_args, true);
+    int ret = xipfs_extended_driver_safe_execv(argv[1], execute_file_handler_args);
     if (ret != 0) {
         printf("Failed to execute '%s', error=%d\n", argv[1], ret);
         return 2;

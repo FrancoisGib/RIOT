@@ -307,7 +307,7 @@ void xipfs_nvm_write(void *target_addr, const void *data, size_t len);
 
 int xipfs_close(xipfs_mount_t *mp, xipfs_file_desc_t *descp);
 int xipfs_closedir(xipfs_mount_t *mp, xipfs_dir_desc_t *descp);
-int xipfs_execv(xipfs_mount_t *mp, const char *full_path, char *const argv[], char safe);
+int xipfs_execv(xipfs_mount_t *mp, const char *full_path, char *const argv[], uint8_t is_safe);
 int xipfs_format(xipfs_mount_t *mp);
 int xipfs_fstat(xipfs_mount_t *mp, xipfs_file_desc_t *descp, struct stat *buf);
 int xipfs_fsync(xipfs_mount_t *mp, xipfs_file_desc_t *descp, off_t pos);

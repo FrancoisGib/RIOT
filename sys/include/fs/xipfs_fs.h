@@ -119,7 +119,19 @@ int xipfs_extended_driver_new_file(const char *full_path, uint32_t size, uint32_
  * @retval Less than 0 on errors.
  * @retval 0 on success.
  */
-int xipfs_extended_driver_execv(const char *full_path, char *const argv[], const char safe);
+int xipfs_extended_driver_execv(const char *full_path, char *const argv[]);
+
+/**
+ * @brief Executes an executable file with arguments safely with MPU regions configured.
+ *
+ * @param full_path A full path such as `/dev/nvme0p0/my_executable_file`
+ *
+ * @param argv Executable arguments. Cannot be NULL, at least argv[0] contains the executable filename.
+ *
+ * @retval Less than 0 on errors.
+ * @retval 0 on success.
+ */
+int xipfs_extended_driver_safe_execv(const char *full_path, char *const argv[]);
 
 #ifdef __cplusplus
 }

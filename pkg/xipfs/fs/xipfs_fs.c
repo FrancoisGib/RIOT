@@ -614,7 +614,7 @@ int xipfs_extended_driver_new_file(const char *full_path, uint32_t size, uint32_
     return ret;
 }
 
-int xipfs_extended_driver_execv(const char *full_path, char *const argv[], const char safe)
+static int xipfs_extended_driver_execv_call(const char *full_path, char *const argv[], const uint8_t is_safe)
 {
     xipfs_mount_t mp;
     const char *path;
@@ -631,10 +631,20 @@ int xipfs_extended_driver_execv(const char *full_path, char *const argv[], const
     }
 
     mutex_lock(&xipfs_mutex);
-    ret = xipfs_execv(&mp, path, argv, safe);
+    ret = xipfs_execv(&mp, path, argv, is_safe);
     mutex_unlock(&xipfs_mutex);
-
+    
     return ret;
+}
+
+int xipfs_extended_driver_execv(const char *full_path, char *const argv[])
+{
+    return xipfs_extended_driver_execv_call(full_path, argv, false);
+}
+
+int xipfs_extended_driver_safe_execv(const char *full_path, char *const argv[])
+{
+    return xipfs_extended_driver_execv_call(full_path, argv, true);
 }
 
 /*

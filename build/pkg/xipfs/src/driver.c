@@ -1495,7 +1495,7 @@ int xipfs_new_file(xipfs_mount_t *mp, const char *path,
 }
 
 int xipfs_execv(xipfs_mount_t *mp, const char *path,
-                char *const argv[], char safe)
+                char *const argv[], uint8_t is_safe)
 {
     xipfs_path_t xipath;
     size_t len;
@@ -1548,7 +1548,7 @@ int xipfs_execv(xipfs_mount_t *mp, const char *path,
         return -EINVAL;
     }
 
-    if (safe) {
+    if (is_safe) {
         ret = xipfs_file_safe_exec(xipath.witness, argv);
     }
     else {
