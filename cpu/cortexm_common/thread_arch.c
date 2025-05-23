@@ -537,7 +537,8 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
             SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
             break;
 #ifdef MODULE_XIPFS
-        case XIPFS_ENTER_SVC_NUMBER: {
+        case XIPFS_ENTER_SVC_NUMBER: 
+        {
             void *crt0_ctx = (void *)svc_args[0];
             void *entry_point = (void *)svc_args[1];
             void *stack_top = (void *)svc_args[2];
@@ -546,8 +547,11 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
             break;
         }
         case XIPFS_SYSCALL_SVC_NUMBER:
-            xipfs_syscall_dispatcher(svc_args);
+        {
+            int res = xipfs_syscall_dispatcher(svc_args);
+            __asm__ volatile ("mov r0, %0" :: "r"(res));
             break;
+        }
 #endif
         default:
             DEBUG("svc: unhandled SVC #%u\n", svc_number);

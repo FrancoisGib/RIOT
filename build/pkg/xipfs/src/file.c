@@ -281,8 +281,6 @@ static void *_exec_entry_point USED;
  */
 static void *_exec_curr_stack USED;
 
-static void *_former_priv_stack USED;
-
 /**
  * @brief A pointer to a virtual file name
  */
