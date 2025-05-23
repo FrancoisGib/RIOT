@@ -88,10 +88,28 @@
  */
 #define XIPFS_SYSCALL_SVC_NUMBER 3
 
+/**
+ * @def EXC_RETURN_THREAD_MODE_PSP
+ *
+ * @brief The exec return adress to return from handler mode
+ * to thread mode with psp stack 
+ */
 #define EXC_RETURN_THREAD_MODE_PSP 0xFFFFFFFD
 
+/**
+ * @def EXC_RETURN_THREAD_MODE_MSP
+ *
+ * @brief The exec return adress to return from handler mode
+ * to thread mode with msp stack 
+ */
 #define EXC_RETURN_THREAD_MODE_MSP 0xFFFFFFF9
 
+/**
+ * @def XPSR_THUMB_MODE
+ *
+ * @brief The mask used during context switch to set xPSR to thumb mode,
+ * it is mandatory to set xPSR to thumb mode to use exec return mechanism
+ */
 #define XPSR_THUMB_MODE 0x1000000
 
 #ifdef __GNUC__
@@ -144,25 +162,70 @@
  */
 #define STR(x) STR_HELPER(x)
 
+/**
+ * @internal
+ *
+ * @brief Structure describing an exception stack frame,
+ * used to switch between user / privileged mode
+ */
 typedef struct {
+    /**
+     * The r0 register
+     */
     uint32_t r0;
+    /**
+     * The r1 register
+     */
     uint32_t r1;
+    /**
+     * The r2 register
+     */
     uint32_t r2;
+    /**
+     * The r3 register
+     */
     uint32_t r3;
+    /**
+     * The r12 register
+     */
     uint32_t r12;
+    /**
+     * The lr register
+     */
     uint32_t lr;
+    /**
+     * The pc register
+     */
     uint32_t pc;
+    /**
+     * The xPSR register
+     */
     uint32_t xpsr;
 } isr_stack_frame_t;
 
-enum control_register_mode_e {
+/**
+ * @internal
+ *
+ * @brief An enumeration describing the different modes of the control register
+ */
+typedef enum {
+    /**
+     * Privileged mode with MSP stack
+     */
     CTRL_PRIV_MSP = 0,
+    /**
+     * User mode with MSP stack
+     */
     CTRL_USER_MSP = 1,
+    /**
+     * Privileged mode with PSP stack
+     */
     CTRL_PRIV_PSP = 2,
+    /**
+     * User mode with PSP stack
+     */
     CTRL_USER_PSP = 3
-};
-
-
+} control_register_mode_e;
 
 /*
  * Internal structure
@@ -260,9 +323,11 @@ typedef struct exec_ctx_s {
  * Arguments passed to the relocatable binary
  */
     char *argv[XIPFS_EXEC_ARGC_MAX];
-
+    /**
+     * true if the context is executed in user mode with MPU regions configured,
+     * false otherwise 
+     */
     char is_safe_call;
-
     /**
  * Table of function pointers for the libc and RIOT
  * functions used by the relocatable binary
@@ -943,29 +1008,48 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
     return 0;
 }
 
-extern char _rom_start_addr;
-extern char _rom_offset;
-extern char _fw_rom_length;
-
-extern char _rom_start_addr;
-extern char _ram_length;
-
-extern uint32_t _estack;
-
-void NAKED enter_unprivileged_mode(crt0_ctx_t *crt0_ctx,
-                                   void *entry_point,
-                                   void *stack_top,
-                                   void *return_addr);
-
-void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* filp_buf UNUSED, void* stack_top UNUSED) {
+/**
+ * @internal
+ * 
+ * @pre filp must be a pointer to an accessible and valid xipfs
+ * file structure
+ *
+ * @brief Calls an SVC to switch from thread mode to handler mode
+ * and be able to switch to user thread mode safely
+ *
+ * @param crt0 A pointer to the crt0 context to execute the binary
+ *
+ * @param entrypoint A pointer to the entrypoint of the binary
+ *
+ * @param stack A pointer to the top of the binary's stack
+ */
+static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
+    /**
+     * The arguments are passed to the SVC call through r0, r1, and r2
+     */
     __asm__ volatile(
-        " push   {lr}                         \n"
-        " ldr    r4, =_exec_curr_stack        \n"
-        " str    sp, [r4]                     \n" // save current SP
-        " svc #"STR(XIPFS_ENTER_SVC_NUMBER)"   \n"
+        " push   {lr}                        \n"
+        " ldr    r4, =_exec_curr_stack       \n" // get the current stack
+        " str    sp, [r4]                    \n" // save current SP
+        " svc #"STR(XIPFS_ENTER_SVC_NUMBER)" \n"
     );
 }
 
+/**
+ * @pre filp must be a pointer to an accessible and valid xipfs
+ * file structure
+ *
+ * @brief Executes a binary in user mode protected by the MPU in the current RIOT thread
+ *
+ * @param filp A pointer to a memory region containing an
+ * accessible xipfs file structure
+ *
+ * @param argv A pointer to a list of pointers to memory regions
+ * containing accessible arguments to pass to the binary
+ *
+ * @return Returns zero if the function succeed or a negative
+ * value otherwise
+ */
 int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 {
     if (xipfs_file_filp_check(filp) < 0) {
@@ -1006,16 +1090,49 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     return 0;
 }
 
-void init_frame(isr_stack_frame_t *frame) {
+/**
+ * @internal
+ * 
+ * @brief Initialize an exception stack frame by setting all members to zero
+ * except xpsr which is set to thumb mode for switching
+ *
+ * @param frame A pointer to the exception stack frame used to switch context
+ */
+static void init_isr_stack_frame(isr_stack_frame_t *frame) {
     memset(frame, 0, 28);
-    frame->xpsr = XPSR_THUMB_MODE;    
+    frame->xpsr = XPSR_THUMB_MODE;
 }
 
-void NAKED switch_to(isr_stack_frame_t *frame UNUSED, void *user_stack UNUSED, uint8_t control UNUSED, void *isr_stack_start UNUSED) {
+/**
+ * @internal
+ * 
+ * @pre control param should be at least 2 because SPSEL bit of the control register should be 1,
+ * it means that we should always return from the exception with the psp stack
+ * 
+ * @pre we must be in handler mode to use the exec return mechanism,
+ * otherwise an hard fault exception will occur
+ * 
+ * @brief Switch to the context specified with the exception frame
+ * in parameter, restore the former isr stack start.
+ * It uses the arm exec return mechanism to switch safely between user / privileged mode
+ *
+ * @param frame A pointer to the exception stack frame used to switch context
+ * 
+ * @param stack A pointer to the stack to use after the context switch
+ * 
+ * @param control The flags of the control register to specify if we return in user or privileged mode
+ * 
+ * @param isr_stack_start A pointer to the exception stack top, we must restore it because we never 
+ * return from the exception
+ */
+static void NAKED xipfs_switch_context(isr_stack_frame_t *frame UNUSED,
+                                void *stack UNUSED,
+                                control_register_mode_e control UNUSED,
+                                void *isr_stack_top UNUSED) {
     __asm__ volatile (
         " cpsid i                                    \n" // disable interrupts
 
-        // Copy stack frame
+        // Copy stack frame from isr stack to new psp stack
         " sub r1, 32                                 \n" // allocate stack frame on user stack
         " push {r4-r11}                              \n" // save r4-r11 registers
         " ldm r0!, {r4-r11}                          \n" // copy frame into r4-r11
@@ -1037,29 +1154,59 @@ void NAKED switch_to(isr_stack_frame_t *frame UNUSED, void *user_stack UNUSED, u
 
 extern void *thread_isr_stack_end(void);
 
+/**
+ * @pre we must be in handler mode to use the function, otherwise an hard fault
+ * will occur on context switch
+ * 
+ * @brief Prepare the exception stack frame to switch to 
+ * user mode and execute the binary safely, called from an svc interruption
+ *
+ * @param crt0 A pointer to the crt0 context to execute the binary
+ *
+ * @param entrypoint A pointer to the entrypoint of the binary
+ *
+ * @param stack A pointer to the top of the binary's stack
+ */
 void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
                                    void *entrypoint UNUSED,
-                                   void *stack_top UNUSED)
+                                   void *stack UNUSED)
 {
     isr_stack_frame_t frame;
-    init_frame(&frame);
+    init_isr_stack_frame(&frame);
     frame.r0 = (uint32_t)crt0_ctx;
     frame.pc = (uint32_t)entrypoint;
-    void *isr_stack_end = thread_isr_stack_end();
-    switch_to(&frame, stack_top, CTRL_USER_PSP, isr_stack_end);
+    void *isr_stack_top = thread_isr_stack_end();
+    xipfs_switch_context(&frame, stack, CTRL_USER_PSP, isr_stack_top);
 }
 
-void xipfs_exec_exit_safe(void)
+/**
+ * @internal
+ * 
+ * @pre we must be in handler mode to use the function, otherwise an hard fault
+ * will occur on context switch
+ * 
+ * @brief Prepare the exception stack frame to switch back from user mode to 
+ * privileged mode and exit safely
+ */
+static void xipfs_exec_exit_safe(void)
 {
     isr_stack_frame_t frame;
-    init_frame(&frame);
+    init_isr_stack_frame(&frame);
     uint32_t return_address = *(uint32_t *)_exec_curr_stack;
     _exec_curr_stack += 4; // deallocate return address 4 bytes
     frame.pc = return_address;
-    void *isr_stack_end = thread_isr_stack_end();
-    switch_to(&frame, _exec_curr_stack, CTRL_PRIV_PSP, isr_stack_end);
+    void *isr_stack_top = thread_isr_stack_end();
+    xipfs_switch_context(&frame, _exec_curr_stack, CTRL_PRIV_PSP, isr_stack_top);
 }
 
+/**
+ * @pre The function must not be used outside of SVC calls
+ * 
+ * @brief Dispatch syscalls made by the safely executed binary
+ * 
+ * @param svc_args An array containing the arguments of the syscall,
+ * the first one is the syscall number used to dispatch
+ */
 int xipfs_syscall_dispatcher(unsigned int *svc_args)
 {
     unsigned int syscall_number = svc_args[0];
