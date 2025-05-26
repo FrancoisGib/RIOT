@@ -509,11 +509,10 @@ void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 #define XIPFS_SYSCALL_SVC_NUMBER 3
 #endif
 
-
 extern int xipfs_syscall_dispatcher(unsigned int *svc_args);
 extern void xipfs_exec_enter_safe(void *crt0_ctx,
-                                    void *entry_point,
-                                    void *stack_top);
+                                  void *entry_point,
+                                  void *stack_top);
 
 #endif
 
@@ -541,6 +540,7 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
         case 1: /* SVC number used by cpu_switch_context_exit */
             SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
             break;
+
 #ifdef MODULE_XIPFS
         case XIPFS_ENTER_SVC_NUMBER: 
         {
@@ -557,6 +557,7 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
             break;
         }
 #endif
+
         default:
             DEBUG("svc: unhandled SVC #%u\n", svc_number);
             break;
