@@ -322,9 +322,9 @@ typedef struct exec_ctx_s {
  */
     char *argv[XIPFS_EXEC_ARGC_MAX];
     /**
-     * true if the context is executed in user mode with MPU regions configured,
-     * false otherwise 
-     */
+ * True if the context is executed in user mode with MPU regions configured,
+ * false otherwise 
+ */
     char is_safe_call;
     /**
  * Table of function pointers for the libc and RIOT
@@ -1021,11 +1021,12 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
  *
  * @param stack A pointer to the top of the binary's stack
  */
-static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
+static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t *crt0 UNUSED, void *entrypoint UNUSED, void *stack UNUSED)
+{
     /**
      * The arguments are passed to the SVC call through r0, r1, and r2
      */
-    __asm__ volatile(
+    __asm__ volatile (
         " push   {lr}                        \n"
         " ldr    r4, =_exec_curr_stack       \n" // get the current stack
         " str    sp, [r4]                    \n" // save current SP
@@ -1050,17 +1051,16 @@ static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entryp
  */
 int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 {
-    if (xipfs_file_filp_check(filp) < 0)
-    {
+    if (xipfs_file_filp_check(filp) < 0) {
         /* xipfs_errno was set */
         return -1;
     }
-
+    
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
     exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
-
+    
     size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start;
     size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start;
     size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot;
@@ -1163,10 +1163,10 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
 {
     uint32_t *stack_ptr = (uint32_t *)stack;
     stack_ptr -= 8;
-    isr_stack_frame_t *frame = (isr_stack_frame_t *)stack_ptr;
-    init_isr_stack_frame(frame);
-    frame->r0 = (uint32_t)crt0_ctx;
-    frame->pc = (uint32_t)entrypoint;
+    isr_stack_frame_t *isr_stack_frame = (isr_stack_frame_t *)stack_ptr;
+    init_isr_stack_frame(isr_stack_frame);
+    isr_stack_frame->r0 = (uint32_t)crt0_ctx;
+    isr_stack_frame->pc = (uint32_t)entrypoint;
     void *isr_stack_top = thread_isr_stack_end();
     xipfs_switch_context(stack_ptr, CTRL_USER_PSP, isr_stack_top);
 }
@@ -1185,9 +1185,9 @@ static void xipfs_exec_exit_safe(void)
     uint32_t *exec_current_stack = (uint32_t *)_exec_curr_stack;
     uint32_t return_address = *exec_current_stack;
     exec_current_stack -= 7; // substract by 28 bytes, not 32 because we deallocate the return address of 4 bytes
-    isr_stack_frame_t* frame = (isr_stack_frame_t *)_exec_curr_stack;
-    init_isr_stack_frame(frame);
-    frame->pc = return_address;
+    isr_stack_frame_t *isr_stack_frame = (isr_stack_frame_t *)_exec_curr_stack;
+    init_isr_stack_frame(isr_stack_frame);
+    isr_stack_frame->pc = return_address;
     void *isr_stack_top = thread_isr_stack_end();
     xipfs_switch_context(exec_current_stack, CTRL_PRIV_PSP, isr_stack_top);
 }
@@ -1211,8 +1211,8 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
         }
         case SYSCALL_PRINTF:
         {
-            const char* format = (const char*)svc_args[1];
-            va_list* ap = (va_list*)svc_args[2];
+            const char *format = (const char *)svc_args[1];
+            va_list *ap = (va_list *)svc_args[2];
             return vprintf(format, *ap);
         }
         default:
