@@ -1182,14 +1182,14 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
  */
 static void xipfs_exec_exit_safe(void)
 {
-    uint32_t *exec_current_stack = (uint32_t *)_exec_curr_stack;
-    uint32_t return_address = *exec_current_stack;
-    exec_current_stack -= 7; // substract by 28 bytes, not 32 because we deallocate the return address of 4 bytes
-    isr_stack_frame_t *isr_stack_frame = (isr_stack_frame_t *)_exec_curr_stack;
+    uint32_t *exec_current_stack_ptr = (uint32_t *)_exec_curr_stack;
+    uint32_t return_address = *exec_current_stack_ptr;
+    exec_current_stack_ptr -= 7; // substract by 28 bytes, not 32 because we deallocate the return address of 4 bytes
+    isr_stack_frame_t *isr_stack_frame = (isr_stack_frame_t *)exec_current_stack_ptr;
     init_isr_stack_frame(isr_stack_frame);
     isr_stack_frame->pc = return_address;
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(exec_current_stack, CTRL_PRIV_PSP, isr_stack_top);
+    xipfs_switch_context(exec_current_stack_ptr, CTRL_PRIV_PSP, isr_stack_top);
 }
 
 /**
