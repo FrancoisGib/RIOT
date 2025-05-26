@@ -75,6 +75,9 @@
 #define EXEC_STACKSIZE_DEFAULT 1024
 
 /**
+ * @warning The xipfs enter SVC number must be the same as in
+ * examples/xipfs/hello-world/stdriot/stdriot.c
+ * 
  * @def XIPFS_ENTER_SVC_NUMBER
  *
  * @brief The svc number of the xipfs exec enter
@@ -82,6 +85,9 @@
 #define XIPFS_ENTER_SVC_NUMBER 2
 
 /**
+ * @warning The syscall SVC number must be the same as in
+ * examples/xipfs/hello-world/stdriot/stdriot.c
+ * 
  * @def XIPFS_SYSCALL_SVC_NUMBER
  *
  * @brief The svc number of the xipfs syscalls dispatcher
@@ -1044,7 +1050,8 @@ static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entryp
  */
 int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 {
-    if (xipfs_file_filp_check(filp) < 0) {
+    if (xipfs_file_filp_check(filp) < 0)
+    {
         /* xipfs_errno was set */
         return -1;
     }
@@ -1090,7 +1097,8 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
  *
  * @param frame A pointer to the exception stack frame used to switch context
  */
-static void init_isr_stack_frame(isr_stack_frame_t *frame) {
+static void init_isr_stack_frame(isr_stack_frame_t *frame)
+{
     memset(frame, 0, 28);
     frame->xpsr = XPSR_THUMB_MODE;
 }
@@ -1129,6 +1137,7 @@ static void NAKED xipfs_switch_context(void *stack UNUSED,
         " ldr r0, ="STR(EXC_RETURN_THREAD_MODE_PSP)" \n" // exec return to thread mode using psp
 
         " cpsie i                                    \n" // enable interrupts
+
         " bx r0                                      \n" // jump to exec return to thread mode with psp
     );
 }
@@ -1149,16 +1158,17 @@ extern void *thread_isr_stack_end(void);
  * @param stack A pointer to the top of the binary's stack
  */
 void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
-                                   void *entrypoint UNUSED,
-                                   void *stack UNUSED)
+                           void *entrypoint UNUSED,
+                           void *stack UNUSED)
 {
-    stack -= 32;
-    isr_stack_frame_t *frame = (isr_stack_frame_t *)stack;
+    uint32_t *stack_ptr = (uint32_t *)stack;
+    stack_ptr -= 8;
+    isr_stack_frame_t *frame = (isr_stack_frame_t *)stack_ptr;
     init_isr_stack_frame(frame);
     frame->r0 = (uint32_t)crt0_ctx;
     frame->pc = (uint32_t)entrypoint;
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(stack, CTRL_USER_PSP, isr_stack_top);
+    xipfs_switch_context(stack_ptr, CTRL_USER_PSP, isr_stack_top);
 }
 
 /**
@@ -1172,13 +1182,14 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
  */
 static void xipfs_exec_exit_safe(void)
 {
-    uint32_t return_address = *(uint32_t *)_exec_curr_stack;
-    _exec_curr_stack -= 28; // not 32 because we deallocate the return address of 4 bytes
+    uint32_t *exec_current_stack = (uint32_t *)_exec_curr_stack;
+    uint32_t return_address = *exec_current_stack;
+    exec_current_stack -= 7; // substract by 28 bytes, not 32 because we deallocate the return address of 4 bytes
     isr_stack_frame_t* frame = (isr_stack_frame_t *)_exec_curr_stack;
     init_isr_stack_frame(frame);
     frame->pc = return_address;
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(_exec_curr_stack, CTRL_PRIV_PSP, isr_stack_top);
+    xipfs_switch_context(exec_current_stack, CTRL_PRIV_PSP, isr_stack_top);
 }
 
 /**
