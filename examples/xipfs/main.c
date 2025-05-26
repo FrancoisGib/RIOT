@@ -231,21 +231,10 @@ int execution_safe_handler(int argc, char **argv) {
     return EXIT_SUCCESS;
 }
 
-int print_ctrl(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
 
-    uint32_t control;
-    __asm__ volatile ("MRS %0, CONTROL" : "=r"(control));
-    printf("CONTROL : %ld\n", control);
-    return 0;
-}
-
-
-static shell_command_t shell_commands[] = {
+static const shell_command_t shell_commands[] = {
     {"exec", "Execute Hello World", execution_handler},
     {"exec_safe", "Execute Hello World", execution_safe_handler},
-    {"control", "print control", print_ctrl },
     {NULL, NULL, NULL},
 };
 

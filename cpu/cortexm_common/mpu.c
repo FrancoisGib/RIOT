@@ -142,6 +142,8 @@ static uint8_t get_next_log2_from_n(uint32_t n) {
     return power;
 }
 
+#include <stdio.h>
+
 int8_t configure_region(void* addr, uint32_t size, uint8_t xn, uint8_t ap)
 {
     int8_t region = alloc_region();
@@ -149,6 +151,7 @@ int8_t configure_region(void* addr, uint32_t size, uint8_t xn, uint8_t ap)
         MPU->RNR = region;
         MPU->RBAR = build_rbar((uint32_t)addr);
         MPU->RASR = build_rasr(xn, ap, get_next_log2_from_n(size) - 1); // -1 because MPU regions sizes are 2^n+1
+        printf("%p - %p\n", addr, addr + size);
     }
     return region;
 }
