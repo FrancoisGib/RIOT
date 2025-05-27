@@ -1053,6 +1053,7 @@ static void NAKED xipfs_file_safe_exec_svc(exec_ctx_t* crt0 UNUSED, void* entryp
  */
 int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 {
+    int status = 0;
     if (xipfs_file_filp_check(filp) < 0) {
         /* xipfs_errno was set */
         return -1;
@@ -1078,9 +1079,16 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     __ISB();
     __DSB();
     
-    __asm__ volatile("mrs r0, msp\npush {r0-r11, lr}");
+    __asm__ volatile(
+        " mrs r0, msp           \n" // save main stack pointer
+        " push {r0, r4-r11, lr} \n" // save registers
+    );
     xipfs_file_safe_exec_svc(&exec_ctx, _exec_entry_point, exec_ctx.stktop);
-    __asm__ volatile("pop {r0-r11, lr}\nmsr msp, r0");
+    __asm__ volatile(
+        " pop {r1, r4-r11, lr} \n" // restore registers
+        " msr msp, r1          \n" // restore main stack pointer
+        " mov %0, r0           \n" // retrieve exec status
+    : "=r"(status));
 
     __DMB();
     mpu_disable();
@@ -1093,8 +1101,8 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     mpu_enable();
     __ISB();
     __DSB();
-
-    return 0;
+    
+    return status;
 }
 
 /**
@@ -1105,7 +1113,8 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
  *
  * @param frame A pointer to the exception stack frame used to switch context
  */
-static void init_isr_stack_frame(isr_stack_frame_t *frame) {
+static void init_isr_stack_frame(isr_stack_frame_t *frame)
+{
     memset(frame, 0, 28);
     frame->xpsr = XPSR_THUMB_MODE;
 }
@@ -1132,7 +1141,8 @@ static void init_isr_stack_frame(isr_stack_frame_t *frame) {
  */
 static void NAKED xipfs_switch_context(void *stack UNUSED,
                                        control_register_mode_e control UNUSED,
-                                       void *isr_stack_top UNUSED) {
+                                       void *isr_stack_top UNUSED)
+{
     __asm__ volatile (
         " cpsid i                                    \n" // disable interrupts
 
@@ -1164,16 +1174,17 @@ extern void *thread_isr_stack_end(void);
  * @param stack A pointer to the top of the binary's stack
  */
 void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
-                                   void *entrypoint UNUSED,
-                                   void *stack UNUSED)
+                           void *entrypoint UNUSED,
+                           void *stack UNUSED)
 {
-    // stack -= 32;
     uint32_t *stack_ptr = (uint32_t *)stack;
     stack_ptr -= 8;
+
     isr_stack_frame_t *frame = (isr_stack_frame_t *)stack_ptr;
     init_isr_stack_frame(frame);
     frame->r0 = (uint32_t)crt0_ctx;
     frame->pc = (uint32_t)entrypoint;
+
     void *isr_stack_top = thread_isr_stack_end();
     xipfs_switch_context(stack_ptr, CTRL_USER_PSP, isr_stack_top);
 }
@@ -1186,16 +1197,22 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
  * 
  * @brief Prepare the exception stack frame to switch back from user mode to 
  * privileged mode and exit safely
+ * 
+ * @param status The return status of the safe call
  */
-static void xipfs_exec_exit_safe(void)
+static void xipfs_exec_exit_safe(int status)
 {
-    uint32_t return_address = *(uint32_t *)_exec_curr_stack;
-    _exec_curr_stack -= 28; // not 32 because we deallocate the return address of 4 bytes
-    isr_stack_frame_t* frame = (isr_stack_frame_t *)_exec_curr_stack;
+    uint32_t *current_stack_ptr = (uint32_t *)_exec_curr_stack;
+    uint32_t return_address = *current_stack_ptr;
+    current_stack_ptr -= 7; // 7 * 4 = 28, not 32 bytes because we deallocate the return address of 4 bytes
+
+    isr_stack_frame_t* frame = (isr_stack_frame_t *)current_stack_ptr;
     init_isr_stack_frame(frame);
     frame->pc = return_address;
+    frame->r0 = status;
+
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(_exec_curr_stack, CTRL_PRIV_PSP, isr_stack_top);
+    xipfs_switch_context(current_stack_ptr, CTRL_PRIV_PSP, isr_stack_top);
 }
 
 /**
@@ -1212,7 +1229,8 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
     switch (syscall_number) {
         case SYSCALL_EXIT:
         {
-            xipfs_exec_exit_safe();
+            int status = svc_args[1];
+            xipfs_exec_exit_safe(status);
             break;
         }
         case SYSCALL_PRINTF:
