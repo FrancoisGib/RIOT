@@ -58,12 +58,22 @@
 /**
  * @internal
  *
+ * @def XIPFS_EXEC_CTX_HEADER_ALIGNMENT
+ *
+ * @brief Alignment of the header members of the exec context 
+ * to configure the MPU regions properly
+ */
+#define XIPFS_EXEC_CTX_HEADER_ALIGNMENT 512
+
+/**
+ * @internal
+ *
  * @def XIPFS_FREE_RAM_SIZE
  *
  * @brief Amount of free RAM available for the relocatable
  * binary to use
  */
-#define XIPFS_FREE_RAM_SIZE    (512)
+#define XIPFS_FREE_RAM_SIZE 512
 
 /**
  * @internal
@@ -293,28 +303,32 @@ typedef struct crt0_ctx_s {
  */
 typedef struct exec_ctx_s {
     /**
- * Data structure required by the CRT0 to execute the
- * relocatable binary
- */
-    crt0_ctx_t crt0_ctx __attribute__((aligned(32)));;
+     * Data structure required by the CRT0 to execute the
+     * relocatable binary
+     */
+    crt0_ctx_t crt0_ctx __attribute__((aligned(XIPFS_EXEC_CTX_HEADER_ALIGNMENT)));
+    /**
+     * Number of arguments passed to the relocatable binary
+     */
     int argc;
+    /**
+     * Arguments passed to the relocatable binary
+     */
+    char *argv[XIPFS_EXEC_ARGC_MAX];
+    /**
+     * true if the context is executed in user mode with MPU regions configured,
+     * false otherwise 
+     */
+    uint8_t is_safe_call;
     /**
      * Reserved memory space in RAM for the stack to be used by
      * the relocatable binary
      */
     char stkbot[EXEC_STACKSIZE_DEFAULT - 4] __attribute__((aligned(EXEC_STACKSIZE_DEFAULT)));
     /**
- * Last word of the stack indicating the top of the stack
- */
+     * Last word of the stack indicating the top of the stack
+     */
     char stktop[4];
-   
-    /**
- * Number of arguments passed to the relocatable binary
- */
-    /**
- * Arguments passed to the relocatable binary
- */
-    char *argv[XIPFS_EXEC_ARGC_MAX] __attribute__((aligned(XIPFS_EXEC_ARGC_MAX * sizeof(char*))));
     /**
      * Table of function pointers for the libc and RIOT
      * functions used by the relocatable binary
@@ -329,11 +343,6 @@ typedef struct exec_ctx_s {
      * Last byte of the free RAM
      */
     char ram_end;
-    /**
-     * true if the context is executed in user mode with MPU regions configured,
-     * false otherwise 
-     */
-    // char is_safe_call;
 } exec_ctx_t;
 
 /*
@@ -1054,18 +1063,17 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     // exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
 
-    size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start + 1;
+    // size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start + 1;
     size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
     size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
 
     __DMB();
     mpu_disable();
     
-    uint8_t text_region = configure_region(exec_ctx.crt0_ctx.bin_base, text_size, EXC_OK, AP_RO_RO);
-    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, EXC_OK, AP_RW_RW);
+    uint8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
+    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, EXC_NO, AP_RW_RW);
     uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, EXC_NO, AP_RW_RW);
-    uint8_t crt0_region = configure_region(&exec_ctx.crt0_ctx, 32, EXC_OK, AP_RW_RW);
-    uint8_t args_region = configure_region(exec_ctx.argv, XIPFS_EXEC_ARGC_MAX * sizeof(char*), EXC_NO, AP_RW_RW);
+    uint8_t exec_ctx_header_region = configure_region(&exec_ctx, XIPFS_EXEC_CTX_HEADER_ALIGNMENT, EXC_NO, AP_RW_RW);
 
     mpu_enable();
     __ISB();
@@ -1075,13 +1083,11 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     xipfs_file_safe_exec_svc(&exec_ctx, _exec_entry_point, exec_ctx.stktop);
     __asm__ volatile("pop {r0-r11, lr}\nmsr msp, r0");
 
-    // printf("%d %d %d %d %d\n", text_region, data_region, stack_region, crt0_region, args_region);
     mpu_disable();
     free_region(text_region);
     free_region(data_region);
     free_region(stack_region);
-    free_region(crt0_region);
-    free_region(args_region);
+    free_region(exec_ctx_header_region);
     mpu_enable();
     
     return 0;
