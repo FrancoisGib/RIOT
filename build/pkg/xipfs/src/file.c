@@ -1098,7 +1098,6 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     free_region(stack_region);
     free_region(exec_ctx_header_region);
 
-    mpu_enable();
     __ISB();
     __DSB();
     
