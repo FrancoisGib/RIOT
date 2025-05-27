@@ -319,7 +319,7 @@ typedef struct exec_ctx_s {
      * true if the context is executed in user mode with MPU regions configured,
      * false otherwise 
      */
-    uint8_t is_safe_call;
+    unsigned char is_safe_call;
     /**
      * Reserved memory space in RAM for the stack to be used by
      * the relocatable binary
@@ -1002,7 +1002,7 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
-    // exec_ctx.is_safe_call = 0;
+    exec_ctx.is_safe_call = 0;
     _exec_entry_point = thumb(&filp->buf[0]);
     xipfs_exec_enter(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
 
@@ -1060,10 +1060,9 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
-    // exec_ctx.is_safe_call = 1;
+    exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
 
-    // size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start + 1;
     size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
     size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
 
@@ -1083,13 +1082,18 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     xipfs_file_safe_exec_svc(&exec_ctx, _exec_entry_point, exec_ctx.stktop);
     __asm__ volatile("pop {r0-r11, lr}\nmsr msp, r0");
 
+    __DMB();
     mpu_disable();
+
     free_region(text_region);
     free_region(data_region);
     free_region(stack_region);
     free_region(exec_ctx_header_region);
+
     mpu_enable();
-    
+    __ISB();
+    __DSB();
+
     return 0;
 }
 
