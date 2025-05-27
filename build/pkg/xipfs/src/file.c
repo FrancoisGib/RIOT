@@ -296,12 +296,13 @@ typedef struct exec_ctx_s {
  * Data structure required by the CRT0 to execute the
  * relocatable binary
  */
-    crt0_ctx_t crt0_ctx;
+    crt0_ctx_t crt0_ctx __attribute__((aligned(32)));;
+    int argc;
     /**
- * Reserved memory space in RAM for the stack to be used by
- * the relocatable binary
- */
-    char stkbot[EXEC_STACKSIZE_DEFAULT - 4];
+     * Reserved memory space in RAM for the stack to be used by
+     * the relocatable binary
+     */
+    char stkbot[EXEC_STACKSIZE_DEFAULT - 4] __attribute__((aligned(EXEC_STACKSIZE_DEFAULT)));
     /**
  * Last word of the stack indicating the top of the stack
  */
@@ -310,30 +311,29 @@ typedef struct exec_ctx_s {
     /**
  * Number of arguments passed to the relocatable binary
  */
-    int argc;
     /**
  * Arguments passed to the relocatable binary
  */
-    char *argv[XIPFS_EXEC_ARGC_MAX];
+    char *argv[XIPFS_EXEC_ARGC_MAX] __attribute__((aligned(XIPFS_EXEC_ARGC_MAX * sizeof(char*))));
+    /**
+     * Table of function pointers for the libc and RIOT
+     * functions used by the relocatable binary
+     */
+    void *syscall_table[SYSCALL_MAX];
+    /**
+     * Reserved memory space in RAM for the free RAM to be used
+     * by the relocatable binary
+     */
+    char ram_start[XIPFS_FREE_RAM_SIZE - 1] __attribute__((aligned(XIPFS_FREE_RAM_SIZE)));
+    /**
+     * Last byte of the free RAM
+     */
+    char ram_end;
     /**
      * true if the context is executed in user mode with MPU regions configured,
      * false otherwise 
      */
-    char is_safe_call;
-    /**
- * Table of function pointers for the libc and RIOT
- * functions used by the relocatable binary
- */
-    void *syscall_table[SYSCALL_MAX];
-    /**
- * Reserved memory space in RAM for the free RAM to be used
- * by the relocatable binary
- */
-    char ram_start[XIPFS_FREE_RAM_SIZE - 1];
-    /**
- * Last byte of the free RAM
- */
-    char ram_end;
+    // char is_safe_call;
 } exec_ctx_t;
 
 /*
@@ -993,7 +993,7 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
-    exec_ctx.is_safe_call = 0;
+    // exec_ctx.is_safe_call = 0;
     _exec_entry_point = thumb(&filp->buf[0]);
     xipfs_exec_enter(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
 
@@ -1015,7 +1015,7 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
  *
  * @param stack A pointer to the top of the binary's stack
  */
-static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
+static void NAKED xipfs_file_safe_exec_svc(exec_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
     /**
      * The arguments are passed to the SVC call through r0, r1, and r2
      */
@@ -1051,32 +1051,37 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
-    exec_ctx.is_safe_call = 1;
+    // exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
 
-    size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start;
-    size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start;
-    size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot;
-    
+    size_t text_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start + 1;
+    size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
+    size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
+
     __DMB();
     mpu_disable();
     
-    uint8_t text_region = configure_region(_exec_entry_point, text_size, EXC_OK, AP_RO_RO);
-    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, EXC_NO, AP_RW_RW);
-    uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, EXC_OK, AP_RW_RW);
+    uint8_t text_region = configure_region(exec_ctx.crt0_ctx.bin_base, text_size, EXC_OK, AP_RO_RO);
+    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, EXC_OK, AP_RW_RW);
+    uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, EXC_NO, AP_RW_RW);
+    uint8_t crt0_region = configure_region(&exec_ctx.crt0_ctx, 32, EXC_OK, AP_RW_RW);
+    uint8_t args_region = configure_region(exec_ctx.argv, XIPFS_EXEC_ARGC_MAX * sizeof(char*), EXC_NO, AP_RW_RW);
 
     mpu_enable();
     __ISB();
     __DSB();
     
-    __asm__ volatile("push {r4-r7, lr}");
-    xipfs_file_safe_exec_svc(&exec_ctx.crt0_ctx, _exec_entry_point, exec_ctx.stktop);
-    __asm__ volatile("pop {r4-r7, lr}");
+    __asm__ volatile("mrs r0, msp\npush {r0-r11, lr}");
+    xipfs_file_safe_exec_svc(&exec_ctx, _exec_entry_point, exec_ctx.stktop);
+    __asm__ volatile("pop {r0-r11, lr}\nmsr msp, r0");
 
+    // printf("%d %d %d %d %d\n", text_region, data_region, stack_region, crt0_region, args_region);
     mpu_disable();
     free_region(text_region);
     free_region(data_region);
     free_region(stack_region);
+    free_region(crt0_region);
+    free_region(args_region);
     mpu_enable();
     
     return 0;
@@ -1152,13 +1157,15 @@ void xipfs_exec_enter_safe(crt0_ctx_t *crt0_ctx UNUSED,
                                    void *entrypoint UNUSED,
                                    void *stack UNUSED)
 {
-    stack -= 32;
-    isr_stack_frame_t *frame = (isr_stack_frame_t *)stack;
+    // stack -= 32;
+    uint32_t *stack_ptr = (uint32_t *)stack;
+    stack_ptr -= 8;
+    isr_stack_frame_t *frame = (isr_stack_frame_t *)stack_ptr;
     init_isr_stack_frame(frame);
     frame->r0 = (uint32_t)crt0_ctx;
     frame->pc = (uint32_t)entrypoint;
     void *isr_stack_top = thread_isr_stack_end();
-    xipfs_switch_context(stack, CTRL_USER_PSP, isr_stack_top);
+    xipfs_switch_context(stack_ptr, CTRL_USER_PSP, isr_stack_top);
 }
 
 /**

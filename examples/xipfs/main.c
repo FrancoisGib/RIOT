@@ -282,7 +282,7 @@ int main(void)
     mount_or_format(&nvme0p1);
 
     init_mpu();
-    mpu_enable();
+    // mpu_enable();
     (void)shell_commands;
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
     // execution_safe_handler(0, NULL);
