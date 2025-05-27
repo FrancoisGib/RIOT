@@ -276,15 +276,12 @@ static void mount_or_format(vfs_xipfs_mount_t *xipfs_mp)
 int main(void)
 {
     char line_buf[SHELL_DEFAULT_BUFSIZE];
-    (void)line_buf;
 
     mount_or_format(&nvme0p0);
     mount_or_format(&nvme0p1);
 
     init_mpu();
-    
-    (void)shell_commands;
-    shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
 
+    shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
     return 0;
 }
