@@ -394,10 +394,11 @@ char *xipfs_infos_file = "/.xipfs_infos";
 static void NAKED
 xipfs_exec_exit(int status UNUSED)
 {
-    __asm__ volatile(
+    __asm__ volatile (
         " ldr r4, =_exec_curr_stack \n"
-        " ldr sp, [r4] \n"
-        " pop {r4, pc} \n");
+        " ldr sp, [r4]              \n"
+        " pop {r4, pc}              \n"
+    );
 }
 
 /**
@@ -412,16 +413,13 @@ xipfs_exec_enter(crt0_ctx_t *crt0_ctx UNUSED,
                  void *entry_point UNUSED,
                  void *stack_top UNUSED)
 {
-    __asm__ volatile(
-        " push {r4, lr} \n"
+    __asm__ volatile (
+        " push {r4, lr}             \n"
         " ldr r4, =_exec_curr_stack \n"
-        " str sp, [r4] \n"
-        " ldr r0, =exec_ctx \n"
-        " add r4, r0, #1040 \n"
-        " mov sp, r4 \n"
-        " ldr r4, =_exec_entry_point \n"
-        " ldr r4, [r4] \n"
-        " blx r4 \n");
+        " str sp, [r4]              \n"
+        " mov sp, r2                \n"
+        " blx r1                    \n"
+    );
 }
 
 /**
@@ -1004,7 +1002,7 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
     exec_ctx_init(&exec_ctx, filp, argv);
     exec_ctx.is_safe_call = 0;
     _exec_entry_point = thumb(&filp->buf[0]);
-    xipfs_exec_enter(&exec_ctx.crt0_ctx, filp->buf, exec_ctx.stktop);
+    xipfs_exec_enter(&exec_ctx.crt0_ctx, _exec_entry_point, exec_ctx.stktop);
 
     return 0;
 }
@@ -1066,6 +1064,10 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
     size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
+
+    assert((uint32_t)exec_ctx.stkbot % EXEC_STACKSIZE_DEFAULT == 0);
+    assert((uint32_t)exec_ctx.ram_start % XIPFS_FREE_RAM_SIZE == 0);
+    assert((uint32_t)&exec_ctx % XIPFS_EXEC_CTX_HEADER_ALIGNMENT == 0);
 
     __DMB();
     mpu_disable();
