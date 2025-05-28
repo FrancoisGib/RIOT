@@ -1130,41 +1130,24 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
 
-    // array containing allocated regions index
-    int8_t allocated_regions[] = {-1, -1, -1};
-
     __DMB();
     mpu_disable();
     
-    // text region
-    allocated_regions[0] = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
-    // data region
-    allocated_regions[1] = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
-    // stack region
-    allocated_regions[2] = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
+    int8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
+    int8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
+    int8_t stack_region = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
 
     // detect allocation errors
-    uint8_t alloc_error = 0;
-    for (uint8_t i = 0; i < sizeof(allocated_regions) / sizeof(int8_t); i++) {
-        if (allocated_regions[i] == -1) {
-            alloc_error = 1;
-            break;
-        }
-    }
+    if (text_region == -1
+     || data_region == -1
+     || stack_region == -1) {
+        free_region(text_region);
+        free_region(data_region);
+        free_region(stack_region);
 
-    // free region if error
-    if (alloc_error) {
-        for (uint8_t i = 0; i < sizeof(allocated_regions) / sizeof(int8_t); i++) {
-            if (allocated_regions[i] != -1) {
-                free_region(allocated_regions[i]);
-            }
-        }
-    }
-
-    if (alloc_error) {
         xipfs_errno = XIPFS_ENOMPUREGION;
         return -1;
-    }
+     }
 
     mpu_enable();
     __ISB();
@@ -1184,11 +1167,12 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
         : "=r"(status)
     );
 
+    __DMB();
     mpu_disable();
 
-    for (uint8_t i = 0; i < sizeof(allocated_regions) / sizeof(int8_t); i++) {
-        free_region(allocated_regions[i]);
-    }
+    free_region(text_region);
+    free_region(data_region);
+    free_region(stack_region);
 
     return status;
 }
