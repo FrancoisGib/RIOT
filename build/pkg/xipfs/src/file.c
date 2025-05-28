@@ -311,7 +311,7 @@ typedef struct exec_ctx_s {
      * true if the context is executed in user mode with MPU regions configured,
      * false otherwise 
      */
-    unsigned int is_safe_call;
+    unsigned char is_safe_call;
     /**
      * Number of arguments passed to the relocatable binary
      */
@@ -320,15 +320,6 @@ typedef struct exec_ctx_s {
      * Arguments passed to the relocatable binary
      */
     char *argv[XIPFS_EXEC_ARGC_MAX];
-    /**
-     * Reserved memory space in RAM for the stack to be used by
-     * the relocatable binary
-     */
-    char stkbot[EXEC_STACKSIZE_DEFAULT - 4] __attribute__((aligned(EXEC_STACKSIZE_DEFAULT)));
-    /**
-     * Last word of the stack indicating the top of the stack
-     */
-    char stktop[4];
     /**
      * Table of function pointers for the libc and RIOT
      * functions used by the relocatable binary
@@ -343,6 +334,15 @@ typedef struct exec_ctx_s {
      * Last byte of the free RAM
      */
     char ram_end;
+    /**
+     * Reserved memory space in RAM for the stack to be used by
+     * the relocatable binary
+     */
+    char stkbot[EXEC_STACKSIZE_DEFAULT - 4] __attribute__((aligned(EXEC_STACKSIZE_DEFAULT)));
+    /**
+     * Last word of the stack indicating the top of the stack
+     */
+    char stktop[4];
 } exec_ctx_t;
 
 /*
@@ -1032,7 +1032,7 @@ static crt0_ctx_t *safe_exec_relocate(exec_ctx_t *exec_ctx, void *stack) {
     *stack_ptr = exec_ctx->argc;
 
     stack_ptr--;
-    *stack_ptr = exec_ctx->is_safe_call;
+    *stack_ptr = (uint32_t)exec_ctx->is_safe_call;
 
     stack_ptr -= sizeof(crt0_ctx_t) / sizeof(uint32_t);
     memcpy(stack_ptr, &exec_ctx->crt0_ctx, sizeof(crt0_ctx_t));
@@ -1128,9 +1128,7 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     crt0_ctx_t *crt0 = safe_exec_relocate(&exec_ctx, &exec_ctx.stktop[4]);
     char *stack_top = (char *)crt0;
 
-    if ((uint32_t)stack_top % 8 != 0) { // align user stack to 8 bytes for exc return
-        stack_top -= 4;
-    }
+    stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
 
     // array containing allocated regions index
     int8_t allocated_regions[] = {-1, -1, -1};
