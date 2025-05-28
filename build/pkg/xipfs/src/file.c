@@ -306,7 +306,12 @@ typedef struct exec_ctx_s {
      * Data structure required by the CRT0 to execute the
      * relocatable binary
      */
-    crt0_ctx_t crt0_ctx __attribute__((aligned(XIPFS_EXEC_CTX_HEADER_ALIGNMENT)));
+    crt0_ctx_t crt0_ctx;
+    /**
+     * true if the context is executed in user mode with MPU regions configured,
+     * false otherwise 
+     */
+    unsigned int is_safe_call;
     /**
      * Number of arguments passed to the relocatable binary
      */
@@ -315,11 +320,6 @@ typedef struct exec_ctx_s {
      * Arguments passed to the relocatable binary
      */
     char *argv[XIPFS_EXEC_ARGC_MAX];
-    /**
-     * true if the context is executed in user mode with MPU regions configured,
-     * false otherwise 
-     */
-    unsigned char is_safe_call;
     /**
      * Reserved memory space in RAM for the stack to be used by
      * the relocatable binary
@@ -1010,6 +1010,62 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
 /**
  * @internal
  * 
+ * @pre The execution context should be relocated only for safe calls,
+ * unsafe calls without MPU protection shouldn't use it
+ * 
+ * @brief Relocate the exec context's crt0, argc, argv 
+ * and required exec_ctx_t struct members
+ *
+ * @param exec_ctx A pointer to the safe execution context
+ * 
+ * @param stack A pointer to the top of the binary's stack
+ * 
+ * @return Returns a pointer to the relocated crt0 in the user stack
+ */
+static crt0_ctx_t *safe_exec_relocate(exec_ctx_t *exec_ctx, void *stack) {
+    uint32_t *stack_ptr = (uint32_t *)stack;
+
+    stack_ptr -= exec_ctx->argc;
+    memcpy(stack_ptr, exec_ctx->argv, sizeof(char *) * exec_ctx->argc);
+
+    stack_ptr--;
+    *stack_ptr = exec_ctx->argc;
+
+    stack_ptr--;
+    *stack_ptr = exec_ctx->is_safe_call;
+
+    stack_ptr -= sizeof(crt0_ctx_t) / sizeof(uint32_t);
+    memcpy(stack_ptr, &exec_ctx->crt0_ctx, sizeof(crt0_ctx_t));
+
+    return (crt0_ctx_t *)stack_ptr;
+}
+
+/**
+ * @internal
+ * 
+ * @pre The execution context's members must be aligned for safe calls
+ * but alignments are not required for unsafe calls without MPU protection
+ * 
+ * @brief Check if the execution context members are aligned
+ * to their corresponding MPU regions sizes
+ *
+ * @param exec_ctx A pointer to the execution context of the safe call
+ * 
+ * @return Returns zero if the members are aligned, or set
+ * xipfs_errno and returns a negative value
+ */
+static int safe_exec_ctx_check_align(exec_ctx_t *exec_ctx) {
+    if ((uint32_t)exec_ctx->stkbot % EXEC_STACKSIZE_DEFAULT != 0
+     || (uint32_t)exec_ctx->ram_start % XIPFS_FREE_RAM_SIZE != 0) {
+        xipfs_errno = XIPFS_EALIGN;
+        return -1;
+    }
+    return 0;
+}
+
+/**
+ * @internal
+ * 
  * @pre filp must be a pointer to an accessible and valid xipfs
  * file structure
  *
@@ -1022,7 +1078,7 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
  *
  * @param stack A pointer to the top of the binary's stack
  */
-static void NAKED xipfs_file_safe_exec_svc(exec_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
+static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
     /**
      * The arguments are passed to the SVC call through r0, r1, and r2
      */
@@ -1051,7 +1107,8 @@ static void NAKED xipfs_file_safe_exec_svc(exec_ctx_t* crt0 UNUSED, void* entryp
  */
 int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 {
-    int status = 0;
+    int status;
+
     if (xipfs_file_filp_check(filp) < 0) {
         /* xipfs_errno was set */
         return -1;
@@ -1059,23 +1116,57 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx_cleanup(&exec_ctx);
     exec_ctx_init(&exec_ctx, filp, argv);
+
+    if (safe_exec_ctx_check_align(&exec_ctx) < 0) {
+        /* xipfs_errno was set */
+        return -1;
+    }
+
     exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
+    
+    crt0_ctx_t *crt0 = safe_exec_relocate(&exec_ctx, &exec_ctx.stktop[4]);
+    char *stack_top = (char *)crt0;
 
-    size_t data_size = exec_ctx.crt0_ctx.ram_end - exec_ctx.crt0_ctx.ram_start + 1;
-    size_t stack_size = exec_ctx.stktop - exec_ctx.stkbot + 1;
+    if ((uint32_t)stack_top % 8 != 0) { // align user stack to 8 bytes for exc return
+        stack_top -= 4;
+    }
 
-    assert((uint32_t)exec_ctx.stkbot % EXEC_STACKSIZE_DEFAULT == 0);
-    assert((uint32_t)exec_ctx.ram_start % XIPFS_FREE_RAM_SIZE == 0);
-    assert((uint32_t)&exec_ctx % XIPFS_EXEC_CTX_HEADER_ALIGNMENT == 0);
+    // array containing allocated regions index
+    int8_t allocated_regions[] = {-1, -1, -1};
 
     __DMB();
     mpu_disable();
     
-    uint8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
-    uint8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, data_size, EXC_NO, AP_RW_RW);
-    uint8_t stack_region = configure_region(exec_ctx.stkbot, stack_size, EXC_NO, AP_RW_RW);
-    uint8_t exec_ctx_header_region = configure_region(&exec_ctx, XIPFS_EXEC_CTX_HEADER_ALIGNMENT, EXC_NO, AP_RW_RW);
+    // text region
+    allocated_regions[0] = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
+    // data region
+    allocated_regions[1] = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
+    // stack region
+    allocated_regions[2] = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
+
+    // detect allocation errors
+    uint8_t alloc_error = 0;
+    for (uint8_t i = 0; i < sizeof(allocated_regions) / sizeof(int8_t); i++) {
+        if (allocated_regions[i] == -1) {
+            alloc_error = 1;
+            break;
+        }
+    }
+
+    // free region if error
+    if (alloc_error) {
+        for (uint8_t i = 0; i < sizeof(allocated_regions) / sizeof(int8_t); i++) {
+            if (allocated_regions[i] != -1) {
+                free_region(allocated_regions[i]);
+            }
+        }
+    }
+
+    if (alloc_error) {
+        xipfs_errno = XIPFS_ENOMPUREGION;
+        return -1;
+    }
 
     mpu_enable();
     __ISB();
@@ -1085,24 +1176,22 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
         " mrs r0, msp           \n" // save main stack pointer
         " push {r0, r4-r11, lr} \n" // save registers
     );
-    xipfs_file_safe_exec_svc(&exec_ctx, _exec_entry_point, exec_ctx.stktop);
+
+    xipfs_file_safe_exec_svc(crt0, _exec_entry_point, stack_top);
+
     __asm__ volatile(
         " pop {r1, r4-r11, lr} \n" // restore registers
         " msr msp, r1          \n" // restore main stack pointer
         " mov %0, r0           \n" // retrieve exec status
-    : "=r"(status));
+        : "=r"(status)
+    );
 
-    __DMB();
     mpu_disable();
 
-    free_region(text_region);
-    free_region(data_region);
-    free_region(stack_region);
-    free_region(exec_ctx_header_region);
+    for (uint8_t i = 0; i < sizeof(allocated_regions) / sizeof(int8_t); i++) {
+        free_region(allocated_regions[i]);
+    }
 
-    __ISB();
-    __DSB();
-    
     return status;
 }
 

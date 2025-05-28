@@ -116,6 +116,10 @@ enum xipfs_errno_e {
      */
     XIPFS_ENOSPACE,
     /**
+     * No MPU region available
+     */
+    XIPFS_ENOMPUREGION,
+    /**
      * Error number - must be the last element
      */
     XIPFS_ENUM,
