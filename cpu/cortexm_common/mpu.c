@@ -109,6 +109,10 @@ void free_region(int8_t region) {
     }
     regions[region] = first_free_region;
     first_free_region = region;
+
+    MPU->RNR = region;
+    MPU->RBAR = 0;
+    MPU->RASR &= ~0b1;
 }
 
 static uint32_t build_rasr(uint8_t xn, uint8_t ap, uint8_t size)
@@ -137,32 +141,41 @@ static uint32_t next_pow2(uint32_t v)
 
 static uint8_t get_next_log2_from_n(uint32_t n) {
     uint32_t pow2_size = next_pow2(n);
-    // printf("next %ld %ld\n", pow2_size, n);
     uint8_t power = 0;
     while (pow2_size >>= 1) {
         power++;
     }
-    
     return power;
 }
 
+static inline void* align_address_to_region_size(void* addr, uint32_t size)
+{
+    uint32_t address = (uint32_t)addr;
+    uint32_t mask = size - 1;
+    uint32_t aligned_addr = address & ~mask;
+    return (void*)aligned_addr;
+}
 
 int8_t configure_region(void* addr, uint32_t size, uint8_t xn, uint8_t ap)
 {
-    int8_t region = alloc_region();
-    if (region != -1) {
-        MPU->RNR = region;
-        MPU->RBAR = build_rbar((uint32_t)addr);
-        uint32_t pow = get_next_log2_from_n(size);
-        MPU->RASR = build_rasr(xn, ap, pow - 1); // -1 because MPU regions sizes are 2^n+1
-        // printf("%p - %p, pow %ld, size %ld\n", addr, addr + size, pow - 1, size);
+    if (size == 0) {
+        return -1;
     }
-    return region;
-}
 
-int8_t configure_region_if_in_range(void* addr, uint32_t size, uint8_t xn, uint8_t ap, void* begin_address, void* end_address) {
-    if (addr >= begin_address && (addr + size) <= end_address) {
-        return configure_region(addr, size, xn, ap);
+    int8_t region = alloc_region();
+
+    if (region == -1) {
+        return -1;
     }
-    return -1;
+
+    size = next_pow2(size);
+    void *aligned_address = align_address_to_region_size(addr, size);
+    uint32_t pow = get_next_log2_from_n(size) - 1; // -1 because MPU regions sizes are 2^n+1
+    
+    MPU->RNR = region;
+    MPU->RBAR = build_rbar((uint32_t)aligned_address);
+    MPU->RASR = build_rasr(xn, ap, pow);
+    printf("%p - %p, pow %ld, size %ld\n", aligned_address, aligned_address + size, pow, size);
+    
+    return region;
 }

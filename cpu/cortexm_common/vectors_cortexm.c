@@ -483,12 +483,19 @@ void mem_manage_default(void)
     uint32_t hfsr  = SCB->HFSR;
     uint32_t dfsr  = SCB->DFSR;
     uint32_t afsr  = SCB->AFSR;
+
+#ifdef MODULE_XIPFS
+printf("cfsr %lx\n", cfsr);
+printf("mmfar %lx\n", mmfar);
+printf("bfar %lx\n", bfar);
+    extern void xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar);
+    uintptr_t psp = __get_PSP();
+    xipfs_mem_manage_handler((void *)psp, mmfar);
+#endif
+
     printf("hfsr %lx\n", hfsr);
     printf("dfsr %lx\n", dfsr);
     printf("afsr %lx\n", afsr);
-    printf("cfsr %lx\n", cfsr);
-    printf("mmfar %lx\n", mmfar);
-    printf("bfar %lx\n", bfar);
     core_panic(PANIC_MEM_MANAGE, "MEM MANAGE HANDLER");
 }
 

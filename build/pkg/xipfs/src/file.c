@@ -377,6 +377,9 @@ static void *_exec_curr_stack USED;
  */
 char *xipfs_infos_file = "/.xipfs_infos";
 
+int8_t text_region = -1;
+int8_t extra_text_region = -1;
+
 /*
  * Helper functions
  */
@@ -1130,10 +1133,11 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
 
-    __DMB();
+    __disable_irq();
     mpu_disable();
     
-    int8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
+    // int8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
+    text_region = configure_region(filp, 512, EXC_OK, AP_RO_RO);
     int8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
     int8_t stack_region = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
 
@@ -1147,11 +1151,12 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
         xipfs_errno = XIPFS_ENOMPUREGION;
         return -1;
-     }
+    }
 
     mpu_enable();
-    __ISB();
     __DSB();
+    __ISB();
+    __enable_irq();
     
     __asm__ volatile(
         " mrs r0, msp           \n" // save main stack pointer
@@ -1167,12 +1172,18 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
         : "=r"(status)
     );
 
-    __DMB();
+    __disable_irq();
     mpu_disable();
-
+    
     free_region(text_region);
     free_region(data_region);
     free_region(stack_region);
+    free_region(extra_text_region);
+    
+    __enable_irq();
+
+    text_region = -1;
+    extra_text_region = -1;
 
     return status;
 }
@@ -1315,4 +1326,30 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
             break;
     }
     return 0;
+}
+
+void xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar) {
+    __disable_irq();
+    mpu_disable();
+
+    isr_stack_frame_t *frame = (isr_stack_frame_t *)isr_frame_ptr;
+    printf("pc %lx, mmfar %lx\n", frame->pc, mmfar);
+
+    extra_text_region = configure_region((void *)mmfar, 512, EXC_OK, AP_RO_RO);
+
+    mpu_enable();
+
+    // SCB->CFSR &= ~SCB_CFSR_MEMFAULTSR_Msk;
+
+// uint32_t cfsr_value = SCB->CFSR;
+    SCB->CFSR = SCB->CFSR; // Write-1-to-Clear -> reset CFSR
+
+    __DSB();
+    __ISB();
+    __enable_irq();
+
+    frame->xpsr |= XPSR_THUMB_MODE;
+    void *isr_stack_top = thread_isr_stack_end();
+
+    xipfs_switch_context(isr_frame_ptr, CTRL_USER_PSP, isr_stack_top);
 }
