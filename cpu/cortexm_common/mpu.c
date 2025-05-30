@@ -111,7 +111,7 @@ void free_region(int8_t region) {
     first_free_region = region;
 
     MPU->RNR = region;
-    MPU->RBAR = 0;
+    // MPU->RBAR = 0;
     MPU->RASR &= ~0b1;
 }
 

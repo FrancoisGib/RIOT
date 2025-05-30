@@ -377,8 +377,15 @@ static void *_exec_curr_stack USED;
  */
 char *xipfs_infos_file = "/.xipfs_infos";
 
-int8_t text_region = -1;
-int8_t extra_text_region = -1;
+typedef struct {
+    int8_t region;
+    uint32_t base_addr;
+    uint32_t size;
+} mpu_region_t;
+
+mpu_region_t text_region;
+mpu_region_t extra_text_region;
+mpu_region_t *dynamic_text_region_ptr = NULL;
 
 /*
  * Helper functions
@@ -1127,6 +1134,7 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
+    printf("reserved %p, %x\n", filp, filp->reserved);
     
     crt0_ctx_t *crt0 = safe_exec_relocate(&exec_ctx, &exec_ctx.stktop[4]);
     char *stack_top = (char *)crt0;
@@ -1137,15 +1145,23 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     mpu_disable();
     
     // int8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
-    text_region = configure_region(filp, 512, EXC_OK, AP_RO_RO);
+    text_region.region = configure_region(filp, 1024, EXC_OK, AP_RO_RO);
+    text_region.base_addr = (uint32_t)filp;
+    text_region.size = 1024;
+
+    extra_text_region.region = -1;
+    extra_text_region.base_addr = (uint32_t)NULL;
+    extra_text_region.size = 0;
+
     int8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
     int8_t stack_region = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
+    dynamic_text_region_ptr = &extra_text_region;
 
     // detect allocation errors
-    if (text_region == -1
+    if (text_region.region == -1
      || data_region == -1
      || stack_region == -1) {
-        free_region(text_region);
+        free_region(text_region.region);
         free_region(data_region);
         free_region(stack_region);
 
@@ -1175,15 +1191,16 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     __disable_irq();
     mpu_disable();
     
-    free_region(text_region);
+    free_region(text_region.region);
     free_region(data_region);
     free_region(stack_region);
-    free_region(extra_text_region);
+    free_region(extra_text_region.region);
     
     __enable_irq();
 
-    text_region = -1;
-    extra_text_region = -1;
+    text_region.region = -1;
+    extra_text_region.region = -1;
+    dynamic_text_region_ptr = NULL;
 
     return status;
 }
@@ -1328,21 +1345,66 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
     return 0;
 }
 
-void xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar) {
+static inline void* align_address_to_region_size(void* addr, uint32_t size)
+{
+    uint32_t address = (uint32_t)addr;
+    uint32_t mask = size - 1;
+    uint32_t aligned_addr = address & ~mask;
+    return (void*)aligned_addr;
+}
+
+int8_t is_in_range(uint32_t n, uint32_t begin, uint32_t size) {
+    return n >= begin && n <= begin + size;
+}
+
+void xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr UNUSED) {
     __disable_irq();
     mpu_disable();
 
     isr_stack_frame_t *frame = (isr_stack_frame_t *)isr_frame_ptr;
-    printf("pc %lx, mmfar %lx\n", frame->pc, mmfar);
+    
+    printf("pc %lx, mmfar %lx, cfsr %lx\n", frame->pc, mmfar, cfsr);
+    // if (mmfar == 0xe000ed34) {
+    //     printf("0xe000ed34 : %lx\n", **(uint32_t**)mmfar);
+    //     // mmfar = frame->pc;
+    //     // dynamic_text_region_ptr =  &text_region;
+    //     goto end;
+    // }
+    // int8_t changed = 0;
+    // if (is_in_range(frame->pc, dynamic_text_region_ptr->base_addr, dynamic_text_region_ptr->size)) {
+    //     dynamic_text_region_ptr = dynamic_text_region_ptr == &text_region ? &extra_text_region : &text_region;
+    //     changed = 1;
+    // }
+    static int cpt = 0;
+    
+    // if (dynamic_text_region_ptr == &text_region) {
+    //     printf("text region %x %lx\n\n", dynamic_text_region_ptr->region, dynamic_text_region_ptr->base_addr);
+    // } else {
+    //     printf("extra region %x %lx\n\n", dynamic_text_region_ptr->region, dynamic_text_region_ptr->base_addr);
+    // }
 
-    extra_text_region = configure_region((void *)mmfar, 512, EXC_OK, AP_RO_RO);
+    // if (cpt == 100) {
+    //     printf("idle\n");
+    //     while(1);
+    // }
+    
+    cpt++;
+
+    // free_region(text_region.region);
+    free_region(extra_text_region.region);
+    // text_region.region = configure_region((void *)frame->pc, 4096, EXC_OK, AP_RO_RO);
+    extra_text_region.region = configure_region((void *)mmfar, 1024, EXC_OK, AP_RO_RO);
+
+    // free_region(dynamic_text_region_ptr->region);
+    // dynamic_text_region_ptr->base_addr = (uint32_t)align_address_to_region_size((void *)mmfar, 4096);
+    // dynamic_text_region_ptr->size = 4096;
+    // dynamic_text_region_ptr->region = configure_region((void *)mmfar, 4096, EXC_OK, AP_RO_RO);
+    // if (!changed)
+        // dynamic_text_region_ptr = dynamic_text_region_ptr == &text_region ? &extra_text_region : &text_region;
 
     mpu_enable();
 
-    // SCB->CFSR &= ~SCB_CFSR_MEMFAULTSR_Msk;
-
-// uint32_t cfsr_value = SCB->CFSR;
-    SCB->CFSR = SCB->CFSR; // Write-1-to-Clear -> reset CFSR
+    SCB->CFSR = SCB_CFSR_MEMFAULTSR_Msk; // Write-1-to-Clear to reset CFSR
 
     __DSB();
     __ISB();
