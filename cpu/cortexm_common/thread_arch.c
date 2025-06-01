@@ -499,22 +499,22 @@ void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 #  endif
 }
 
-#ifdef MODULE_XIPFS
+#  ifdef MODULE_XIPFS
 
-#ifndef XIPFS_ENTER_SVC_NUMBER
-#define XIPFS_ENTER_SVC_NUMBER 2
-#endif
+#    ifndef XIPFS_ENTER_SVC_NUMBER
+#      define XIPFS_ENTER_SVC_NUMBER 2
+#    endif
 
-#ifndef XIPFS_SYSCALL_SVC_NUMBER
-#define XIPFS_SYSCALL_SVC_NUMBER 3
-#endif
+#    ifndef XIPFS_SYSCALL_SVC_NUMBER
+#      define XIPFS_SYSCALL_SVC_NUMBER 3
+#    endif
 
 extern int xipfs_syscall_dispatcher(unsigned int *svc_args);
 extern void xipfs_exec_enter_safe(void *crt0_ctx,
                                   void *entry_point,
                                   void *stack_top);
 
-#endif
+#  endif
 
 static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
 {
@@ -537,30 +537,28 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
      */
     unsigned int svc_number = ((char *)svc_args[6])[-2];
     switch (svc_number) {
-        case 1: /* SVC number used by cpu_switch_context_exit */
-            SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
-            break;
+    case 1: /* SVC number used by cpu_switch_context_exit */
+        SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
+        break;
 
-#ifdef MODULE_XIPFS
-        case XIPFS_ENTER_SVC_NUMBER: 
-        {
-            void *crt0_ctx = (void *)svc_args[0];
-            void *entry_point = (void *)svc_args[1];
-            void *stack_top = (void *)svc_args[2];
-            xipfs_exec_enter_safe(crt0_ctx, entry_point, stack_top);
-            break;
-        }
-        case XIPFS_SYSCALL_SVC_NUMBER:
-        {
-            int res = xipfs_syscall_dispatcher(svc_args);
-            __asm__ volatile ("mov r0, %0" :: "r"(res));
-            break;
-        }
-#endif
+#  ifdef MODULE_XIPFS
+    case XIPFS_ENTER_SVC_NUMBER: {
+        void *crt0_ctx = (void *)svc_args[0];
+        void *entry_point = (void *)svc_args[1];
+        void *stack_top = (void *)svc_args[2];
+        xipfs_exec_enter_safe(crt0_ctx, entry_point, stack_top);
+        break;
+    }
+    case XIPFS_SYSCALL_SVC_NUMBER: {
+        int res = xipfs_syscall_dispatcher(svc_args);
+        __asm__ volatile("mov r0, %0" ::"r"(res));
+        break;
+    }
+#  endif
 
-        default:
-            DEBUG("svc: unhandled SVC #%u\n", svc_number);
-            break;
+    default:
+        DEBUG("svc: unhandled SVC #%u\n", svc_number);
+        break;
     }
 }
 

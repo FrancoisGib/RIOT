@@ -73,7 +73,7 @@
  * @brief Amount of free RAM available for the relocatable
  * binary to use
  */
-#define XIPFS_FREE_RAM_SIZE 512
+#define XIPFS_FREE_RAM_SIZE             512
 
 /**
  * @internal
@@ -82,21 +82,21 @@
  *
  * @brief The default execution stack size of the binary
  */
-#define EXEC_STACKSIZE_DEFAULT 1024
+#define EXEC_STACKSIZE_DEFAULT          1024
 
 /**
  * @def XIPFS_ENTER_SVC_NUMBER
  *
  * @brief The svc number of the xipfs exec enter
  */
-#define XIPFS_ENTER_SVC_NUMBER 2
+#define XIPFS_ENTER_SVC_NUMBER          2
 
 /**
  * @def XIPFS_SYSCALL_SVC_NUMBER
  *
  * @brief The svc number of the xipfs syscalls dispatcher
  */
-#define XIPFS_SYSCALL_SVC_NUMBER 3
+#define XIPFS_SYSCALL_SVC_NUMBER        3
 
 /**
  * @def EXC_RETURN_THREAD_MODE_PSP
@@ -104,7 +104,7 @@
  * @brief The exec return adress to return from handler mode
  * to thread mode with psp stack 
  */
-#define EXC_RETURN_THREAD_MODE_PSP 0xFFFFFFFD
+#define EXC_RETURN_THREAD_MODE_PSP      0xFFFFFFFD
 
 /**
  * @def XPSR_THUMB_MODE
@@ -112,7 +112,7 @@
  * @brief The mask used during context switch to set xPSR to thumb mode,
  * it is mandatory to set xPSR to thumb mode to use exec return mechanism
  */
-#define XPSR_THUMB_MODE 0x1000000
+#define XPSR_THUMB_MODE                 0x1000000
 
 #ifdef __GNUC__
 /**
@@ -162,7 +162,7 @@
  *
  * @brief Used for preprocessing in asm statements
  */
-#define STR(x) STR_HELPER(x)
+#define STR(x)        STR_HELPER(x)
 
 /**
  * @internal
@@ -311,7 +311,7 @@ typedef struct exec_ctx_s {
      * true if the context is executed in user mode with MPU regions configured,
      * false otherwise 
      */
-    unsigned char is_safe_call;
+    unsigned int is_safe_call;
     /**
      * Number of arguments passed to the relocatable binary
      */
@@ -377,15 +377,7 @@ static void *_exec_curr_stack USED;
  */
 char *xipfs_infos_file = "/.xipfs_infos";
 
-typedef struct {
-    int8_t region;
-    uint32_t base_addr;
-    uint32_t size;
-} mpu_region_t;
-
-mpu_region_t text_region;
-mpu_region_t extra_text_region;
-mpu_region_t *dynamic_text_region_ptr = NULL;
+int8_t extra_regions[] = { -1, -1 };
 
 /*
  * Helper functions
@@ -404,11 +396,10 @@ mpu_region_t *dynamic_text_region_ptr = NULL;
 static void NAKED
 xipfs_exec_exit(int status UNUSED)
 {
-    __asm__ volatile (
+    __asm__ volatile(
         " ldr r4, =_exec_curr_stack \n"
         " ldr sp, [r4]              \n"
-        " pop {r4, pc}              \n"
-    );
+        " pop {r4, pc}              \n");
 }
 
 /**
@@ -423,13 +414,12 @@ xipfs_exec_enter(crt0_ctx_t *crt0_ctx UNUSED,
                  void *entry_point UNUSED,
                  void *stack_top UNUSED)
 {
-    __asm__ volatile (
+    __asm__ volatile(
         " push {r4, lr}             \n"
         " ldr r4, =_exec_curr_stack \n"
         " str sp, [r4]              \n"
         " mov sp, r2                \n"
-        " blx r1                    \n"
-    );
+        " blx r1                    \n");
 }
 
 /**
@@ -1032,7 +1022,8 @@ int xipfs_file_exec(xipfs_file_t *filp, char *const argv[])
  * 
  * @return Returns a pointer to the relocated crt0 in the user stack
  */
-static crt0_ctx_t *safe_exec_relocate(exec_ctx_t *exec_ctx, void *stack) {
+static crt0_ctx_t *safe_exec_relocate(exec_ctx_t *exec_ctx, void *stack)
+{
     uint32_t *stack_ptr = (uint32_t *)stack;
 
     stack_ptr -= exec_ctx->argc;
@@ -1064,9 +1055,9 @@ static crt0_ctx_t *safe_exec_relocate(exec_ctx_t *exec_ctx, void *stack) {
  * @return Returns zero if the members are aligned, or set
  * xipfs_errno and returns a negative value
  */
-static int safe_exec_ctx_check_align(exec_ctx_t *exec_ctx) {
-    if ((uint32_t)exec_ctx->stkbot % EXEC_STACKSIZE_DEFAULT != 0
-     || (uint32_t)exec_ctx->ram_start % XIPFS_FREE_RAM_SIZE != 0) {
+static int safe_exec_ctx_check_align(exec_ctx_t *exec_ctx)
+{
+    if ((uint32_t)exec_ctx->stkbot % EXEC_STACKSIZE_DEFAULT != 0 || (uint32_t)exec_ctx->ram_start % XIPFS_FREE_RAM_SIZE != 0) {
         xipfs_errno = XIPFS_EALIGN;
         return -1;
     }
@@ -1088,7 +1079,8 @@ static int safe_exec_ctx_check_align(exec_ctx_t *exec_ctx) {
  *
  * @param stack A pointer to the top of the binary's stack
  */
-static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entrypoint UNUSED, void* stack UNUSED) {
+static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t *crt0 UNUSED, void *entrypoint UNUSED, void *stack UNUSED)
+{
     /**
      * The arguments are passed to the SVC call through r0, r1, and r2
      */
@@ -1096,8 +1088,7 @@ static void NAKED xipfs_file_safe_exec_svc(crt0_ctx_t* crt0 UNUSED, void* entryp
         " push   {lr}                        \n"
         " ldr    r4, =_exec_curr_stack       \n" // get the current stack
         " str    sp, [r4]                    \n" // save current SP
-        " svc #"STR(XIPFS_ENTER_SVC_NUMBER)" \n"
-    );
+        " svc #" STR(XIPFS_ENTER_SVC_NUMBER) " \n");
 }
 
 /**
@@ -1134,34 +1125,39 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     exec_ctx.is_safe_call = 1;
     _exec_entry_point = thumb(&filp->buf[0]);
-    printf("reserved %p, %x\n", filp, filp->reserved);
-    
+
     crt0_ctx_t *crt0 = safe_exec_relocate(&exec_ctx, &exec_ctx.stktop[4]);
     char *stack_top = (char *)crt0;
 
-    stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
+    // stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
 
     __disable_irq();
     mpu_disable();
-    
+
     // int8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
-    text_region.region = configure_region(filp, 1024, EXC_OK, AP_RO_RO);
-    text_region.base_addr = (uint32_t)filp;
-    text_region.size = 1024;
+    // text_region.region = configure_region(filp, 4096, EXC_OK, AP_RO_RO);
+    // text_region.base_addr = (uint32_t)filp;
+    // text_region.size = 4096;
 
-    extra_text_region.region = -1;
-    extra_text_region.base_addr = (uint32_t)NULL;
-    extra_text_region.size = 0;
+    // extra_text_region.region = -1;
+    // extra_text_region.base_addr = (uint32_t)NULL;
+    // extra_text_region.size = 0;
 
+    // uint32_t nvm_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start;
+    // printf("reserved %p, %p, %ld\n", exec_ctx.crt0_ctx.nvm_start, exec_ctx.crt0_ctx.nvm_end, nvm_size);
+    printf("filp %p, %d\n", filp, filp->reserved);
+    printf("stack %p, %p\n", exec_ctx.stkbot, exec_ctx.stktop);
+    // int8_t nvm_region = configure_region(exec_ctx.crt0_ctx.nvm_start, nvm_size, EXC_OK, AP_RW_RW);
+    // configure_region((void *)0, 0x20000000, EXC_OK, AP_RO_RO);
+    int8_t text_region = configure_region(filp, 4096, EXC_OK, AP_RO_RO);
+    // text_region = configure_region((void *)filp + 8192, 4096, EXC_OK, AP_RO_RO);
     int8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
     int8_t stack_region = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
-    dynamic_text_region_ptr = &extra_text_region;
+    // dynamic_text_region_ptr = &extra_text_region;
 
     // detect allocation errors
-    if (text_region.region == -1
-     || data_region == -1
-     || stack_region == -1) {
-        free_region(text_region.region);
+    if (/*text_region == -1 ||*/ data_region == -1 || stack_region == -1) {
+        // free_region(text_region);
         free_region(data_region);
         free_region(stack_region);
 
@@ -1173,34 +1169,38 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     __DSB();
     __ISB();
     __enable_irq();
-    
+
     __asm__ volatile(
         " mrs r0, msp           \n" // save main stack pointer
-        " push {r0, r4-r11, lr} \n" // save registers
+        " push {r0-r11, lr} \n"     // save registers
     );
 
     xipfs_file_safe_exec_svc(crt0, _exec_entry_point, stack_top);
 
     __asm__ volatile(
-        " pop {r1, r4-r11, lr} \n" // restore registers
-        " msr msp, r1          \n" // restore main stack pointer
         " mov %0, r0           \n" // retrieve exec status
-        : "=r"(status)
-    );
+        " pop {r0-r11, lr} \n"     // restore registers
+        " msr msp, r0          \n" // restore main stack pointer
+        : "=r"(status));
 
     __disable_irq();
     mpu_disable();
-    
-    free_region(text_region.region);
+
+    free_region(text_region);
+    // free_region(nvm_region);
     free_region(data_region);
     free_region(stack_region);
-    free_region(extra_text_region.region);
-    
+    free_region(extra_regions[0]);
+    free_region(extra_regions[1]);
+    extra_regions[0] = -1;
+    extra_regions[1] = -1;
+    // free_region(extra_text_region.region);
+
     __enable_irq();
 
-    text_region.region = -1;
-    extra_text_region.region = -1;
-    dynamic_text_region_ptr = NULL;
+    // text_region.region = -1;
+    // extra_text_region.region = -1;
+    // dynamic_text_region_ptr = NULL;
 
     return status;
 }
@@ -1243,18 +1243,18 @@ static void NAKED xipfs_switch_context(void *stack UNUSED,
                                        control_register_mode_e control UNUSED,
                                        void *isr_stack_top UNUSED)
 {
-    __asm__ volatile (
+    __asm__ volatile(
         " cpsid i                                    \n" // disable interrupts
 
         // Switch to thread mode with psp stack
         " msr psp, r0                                \n" // set psp to begin of stack frame
         " msr msp, r2                                \n" // restore isr stack to end because we never return from the interrupt
         " msr control, r1                            \n" // set the control register to control arg
-        " isb                                        \n" 
-        " ldr r0, ="STR(EXC_RETURN_THREAD_MODE_PSP)" \n" // exec return to thread mode using psp
+        " isb                                        \n"
+        " ldr r0, =" STR(EXC_RETURN_THREAD_MODE_PSP) " \n" // exec return to thread mode using psp
 
-        " cpsie i                                    \n" // enable interrupts
-        " bx r0                                      \n" // jump to exec return to thread mode with psp
+                                                     " cpsie i                                    \n" // enable interrupts
+                                                     " bx r0                                      \n" // jump to exec return to thread mode with psp
     );
 }
 
@@ -1306,7 +1306,7 @@ static void xipfs_exec_exit_safe(int status)
     uint32_t return_address = *current_stack_ptr;
     current_stack_ptr -= 7; // 7 * 4 = 28, not 32 bytes because we deallocate the return address of 4 bytes
 
-    isr_stack_frame_t* frame = (isr_stack_frame_t *)current_stack_ptr;
+    isr_stack_frame_t *frame = (isr_stack_frame_t *)current_stack_ptr;
     init_isr_stack_frame(frame);
     frame->pc = return_address;
     frame->r0 = status;
@@ -1325,93 +1325,72 @@ static void xipfs_exec_exit_safe(int status)
  */
 int xipfs_syscall_dispatcher(unsigned int *svc_args)
 {
+    int status = 0;
     unsigned int syscall_number = svc_args[0];
     switch (syscall_number) {
-        case SYSCALL_EXIT:
-        {
-            int status = svc_args[1];
-            xipfs_exec_exit_safe(status);
-            break;
-        }
-        case SYSCALL_PRINTF:
-        {
-            const char* format = (const char*)svc_args[1];
-            va_list* ap = (va_list*)svc_args[2];
-            return vprintf(format, *ap);
-        }
-        default:
-            break;
+    case SYSCALL_EXIT: {
+        int ret_status = svc_args[1];
+        xipfs_exec_exit_safe(ret_status);
+        break;
     }
-    return 0;
+    case SYSCALL_PRINTF: {
+        const char *format = (const char *)svc_args[1];
+        va_list *ap = (va_list *)svc_args[2];
+        status = vprintf(format, *ap);
+    }
+    default:
+        break;
+    }
+    return status;
 }
 
-static inline void* align_address_to_region_size(void* addr, uint32_t size)
+static inline void *align_address_to_region_size(void *addr, uint32_t size)
 {
     uint32_t address = (uint32_t)addr;
     uint32_t mask = size - 1;
     uint32_t aligned_addr = address & ~mask;
-    return (void*)aligned_addr;
+    return (void *)aligned_addr;
 }
 
-int8_t is_in_range(uint32_t n, uint32_t begin, uint32_t size) {
+int8_t is_in_range(uint32_t n, uint32_t begin, uint32_t size)
+{
     return n >= begin && n <= begin + size;
 }
 
-void xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr UNUSED) {
+int xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr UNUSED)
+{
     __disable_irq();
     mpu_disable();
 
     isr_stack_frame_t *frame = (isr_stack_frame_t *)isr_frame_ptr;
-    
     printf("pc %lx, mmfar %lx, cfsr %lx\n", frame->pc, mmfar, cfsr);
-    // if (mmfar == 0xe000ed34) {
-    //     printf("0xe000ed34 : %lx\n", **(uint32_t**)mmfar);
-    //     // mmfar = frame->pc;
-    //     // dynamic_text_region_ptr =  &text_region;
-    //     goto end;
-    // }
-    // int8_t changed = 0;
-    // if (is_in_range(frame->pc, dynamic_text_region_ptr->base_addr, dynamic_text_region_ptr->size)) {
-    //     dynamic_text_region_ptr = dynamic_text_region_ptr == &text_region ? &extra_text_region : &text_region;
-    //     changed = 1;
-    // }
+
     static int cpt = 0;
-    
-    // if (dynamic_text_region_ptr == &text_region) {
-    //     printf("text region %x %lx\n\n", dynamic_text_region_ptr->region, dynamic_text_region_ptr->base_addr);
-    // } else {
-    //     printf("extra region %x %lx\n\n", dynamic_text_region_ptr->region, dynamic_text_region_ptr->base_addr);
-    // }
 
-    // if (cpt == 100) {
-    //     printf("idle\n");
-    //     while(1);
-    // }
-    
-    cpt++;
+    // free_region(regions[cpt]);
+    free_region(extra_regions[cpt]);
+    if (SCB->CFSR & (1 << 7)) { // bit MMARVALID
+                                // if (mmfar < 0x20002000)
+        // regions[cpt] = configure_region((void *)mmfar, 4096, EXC_OK, AP_RW_RW);
+        extra_regions[cpt] = configure_region((void *)mmfar, 4096, EXC_OK, AP_RO_RO);
+    }
+    else {
+        // regions[cpt] = configure_region((void *)frame->pc, 4096, EXC_OK, AP_RW_RW);
+        extra_regions[cpt] = configure_region((void *)frame->pc, 4096, EXC_OK, AP_RO_RO);
+    }
 
-    // free_region(text_region.region);
-    free_region(extra_text_region.region);
-    // text_region.region = configure_region((void *)frame->pc, 4096, EXC_OK, AP_RO_RO);
-    extra_text_region.region = configure_region((void *)mmfar, 1024, EXC_OK, AP_RO_RO);
-
-    // free_region(dynamic_text_region_ptr->region);
-    // dynamic_text_region_ptr->base_addr = (uint32_t)align_address_to_region_size((void *)mmfar, 4096);
-    // dynamic_text_region_ptr->size = 4096;
-    // dynamic_text_region_ptr->region = configure_region((void *)mmfar, 4096, EXC_OK, AP_RO_RO);
-    // if (!changed)
-        // dynamic_text_region_ptr = dynamic_text_region_ptr == &text_region ? &extra_text_region : &text_region;
+    cpt = (cpt + 1) % 2;
 
     mpu_enable();
 
-    SCB->CFSR = SCB_CFSR_MEMFAULTSR_Msk; // Write-1-to-Clear to reset CFSR
+    SCB->CFSR = SCB->CFSR; // write-1-to-clear
 
     __DSB();
     __ISB();
     __enable_irq();
 
-    frame->xpsr |= XPSR_THUMB_MODE;
-    void *isr_stack_top = thread_isr_stack_end();
-
-    xipfs_switch_context(isr_frame_ptr, CTRL_USER_PSP, isr_stack_top);
+    // frame->xpsr |= XPSR_THUMB_MODE;
+    // void *isr_stack_top = thread_isr_stack_end();
+    // xipfs_switch_context(isr_frame_ptr, CTRL_USER_PSP, isr_stack_top);
+    return 0;
 }

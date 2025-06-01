@@ -35,18 +35,18 @@
 #include "sched.h"
 #include "vectors_cortexm.h"
 #ifdef MODULE_PUF_SRAM
-#include "puf_sram.h"
+#  include "puf_sram.h"
 #endif
 #ifdef MODULE_DBGPIN
-#include "dbgpin.h"
+#  include "dbgpin.h"
 #endif
 
 #ifndef SRAM_BASE
-#define SRAM_BASE 0
+#  define SRAM_BASE 0
 #endif
 
 #ifndef CPU_BACKUP_RAM_NOT_RETAINED
-#define CPU_BACKUP_RAM_NOT_RETAINED 0
+#  define CPU_BACKUP_RAM_NOT_RETAINED 0
 #endif
 
 /**
@@ -78,19 +78,19 @@ extern uint32_t _ebackup_bss[];
 /**
  * @brief   Allocation of the interrupt stack
  */
-__attribute__((used,section(".isr_stack"))) uint8_t isr_stack[ISR_STACKSIZE];
+__attribute__((used, section(".isr_stack"))) uint8_t isr_stack[ISR_STACKSIZE];
 
 /**
  * @brief   Pre-start routine for CPU-specific settings
  */
-__attribute__((weak)) void pre_startup (void)
+__attribute__((weak)) void pre_startup(void)
 {
 }
 
 /**
  * @brief   Post-start routine for CPU-specific settings
  */
-__attribute__((weak)) void post_startup (void)
+__attribute__((weak)) void post_startup(void)
 {
 }
 
@@ -118,7 +118,7 @@ void reset_handler_default(void)
     uint32_t *top;
     /* Fill stack space with canary values up until the current stack pointer */
     /* Read current stack pointer from CPU register */
-    __asm__ volatile ("mov %[top], sp" : [top] "=r" (top) : : );
+    __asm__ volatile("mov %[top], sp" : [top] "=r"(top) : :);
     dst = &_sstack;
     while (dst < top) {
         *(dst++) = STACK_CANARY_WORD;
@@ -129,7 +129,7 @@ void reset_handler_default(void)
     /* cppcheck-suppress comparePointers
      * (addresses exported as symbols via linker script and look unrelated
      * to cppcheck) */
-    for (dst = &_srelocate; dst < &_erelocate; ) {
+    for (dst = &_srelocate; dst < &_erelocate;) {
         *(dst++) = *(src++);
     }
 
@@ -137,17 +137,16 @@ void reset_handler_default(void)
     /* cppcheck-suppress comparePointers
      * (addresses exported as symbols via linker script and look unrelated
      * to cppcheck) */
-    for (dst = &_szero; dst < &_ezero; ) {
+    for (dst = &_szero; dst < &_ezero;) {
         *(dst++) = 0;
     }
 
 #ifdef CPU_HAS_BACKUP_RAM
-#if BACKUP_RAM_HAS_INIT
+#  if BACKUP_RAM_HAS_INIT
     backup_ram_init();
-#endif
+#  endif
     if (!cpu_woke_from_backup() ||
         CPU_BACKUP_RAM_NOT_RETAINED) {
-
         /* load low-power data section. */
         for (dst = _sbackup_data, src = _sbackup_data_load;
              dst < _ebackup_data;
@@ -183,7 +182,6 @@ void reset_handler_default(void)
             (uintptr_t)&_sstack + 31,                       /* Base Address (rounded up) */
             MPU_ATTR(1, AP_RO_RO, 0, 1, 0, 1, MPU_SIZE_32B) /* Attributes and Size */
         );
-
     }
 #endif
 
@@ -217,8 +215,7 @@ void reset_handler_default(void)
     kernel_init();
 }
 
-__attribute__((weak))
-void nmi_handler(void)
+__attribute__((weak)) void nmi_handler(void)
 {
     core_panic(PANIC_NMI_HANDLER, "NMI HANDLER");
 }
@@ -233,24 +230,23 @@ void nmi_handler(void)
  *  - Cortex-M0+ 344 Byte
  *  - Cortex-M4  344 Byte
  */
-#define HARDFAULT_HANDLER_REQUIRED_STACK_SPACE          (344U)
+#  define HARDFAULT_HANDLER_REQUIRED_STACK_SPACE (344U)
 
 static inline int _stack_size_left(uint32_t required)
 {
-    uint32_t* sp;
-    __asm__ volatile ("mov %[sp], sp" : [sp] "=r" (sp) : : );
+    uint32_t *sp;
+    __asm__ volatile("mov %[sp], sp" : [sp] "=r"(sp) : :);
     return ((int)((uint32_t)sp - (uint32_t)&_sstack) - required);
 }
 
-void hard_fault_handler(uint32_t* sp, uint32_t corrupted, uint32_t exc_return,
-                        uint32_t* r4_to_r11_stack);
+void hard_fault_handler(uint32_t *sp, uint32_t corrupted, uint32_t exc_return,
+                        uint32_t *r4_to_r11_stack);
 
 /* Trampoline function to save stack pointer before calling hard fault handler */
 __attribute__((naked)) void hard_fault_default(void)
 {
     /* Get stack pointer where exception stack frame lies */
-    __asm__ volatile
-    (
+    __asm__ volatile(
         ".syntax unified                    \n"
         /* Check that msp is valid first because we want to stack all the
          * r4-r11 registers so that we can use r0, r1, r2, r3 for other things. */
@@ -275,8 +271,7 @@ __attribute__((naked)) void hard_fault_default(void)
         " use_psp:                          \n" /* else {                     */
         "mrs r0, psp                        \n" /*   r0 = psp                 */
         " out:                              \n" /* }                          */
-#if (defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS)) \
-    && defined(MODULE_CPU_CHECK_ADDRESS)
+#  if (defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS)) && defined(MODULE_CPU_CHECK_ADDRESS)
         /* catch intended HardFaults on Cortex-M0 to probe memory addresses */
         "ldr     r1, [r0, #0x04]            \n" /* read R1 from the stack        */
         "ldr     r2, =0xDEADF00D            \n" /* magic number to be found      */
@@ -292,61 +287,58 @@ __attribute__((naked)) void hard_fault_default(void)
         "ldr     r5, =0                     \n" /* set R5 to indicate HardFault  */
         "bx      lr                         \n" /* exit the exception handler    */
         " regular_handler:                  \n"
-#endif
-#if defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS) \
-    || defined(CPU_CORE_CORTEX_M23)
+#  endif
+#  if defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS) || defined(CPU_CORE_CORTEX_M23)
         "push {r4-r7}                       \n" /* save r4..r7 to the stack   */
         "mov r3, r8                         \n" /*                            */
         "mov r4, r9                         \n" /*                            */
         "mov r5, r10                        \n" /*                            */
         "mov r6, r11                        \n" /*                            */
         "push {r3-r6}                       \n" /* save r8..r11 to the stack  */
-#else
+#  else
         "push {r4-r11}                      \n" /* save r4..r11 to the stack  */
-#endif
+#  endif
         "mov r3, sp                         \n" /* r4_to_r11_stack parameter  */
         "bl hard_fault_handler              \n" /* hard_fault_handler(r0)     */
-          :
-          : [sram]   "r" ((uintptr_t)&_sram + HARDFAULT_HANDLER_REQUIRED_STACK_SPACE),
-            [eram]   "r" (&_eram),
-            [estack] "r" (&_estack)
-          : "r0", "r4", "r5", "r6", "r8", "r9", "r10", "r11", "lr"
-    );
+        :
+        : [sram] "r"((uintptr_t)&_sram + HARDFAULT_HANDLER_REQUIRED_STACK_SPACE),
+          [eram] "r"(&_eram),
+          [estack] "r"(&_estack)
+        : "r0", "r4", "r5", "r6", "r8", "r9", "r10", "r11", "lr");
 }
 
-#if defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS) \
-    || defined(CPU_CORE_CORTEX_M23)
+#  if defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS) || defined(CPU_CORE_CORTEX_M23)
 /* Cortex-M0, Cortex-M0+ and Cortex-M23 lack the extended fault status
    registers found in Cortex-M3 and above. */
-#define CPU_HAS_EXTENDED_FAULT_REGISTERS 0
-#else
-#define CPU_HAS_EXTENDED_FAULT_REGISTERS 1
-#endif
+#    define CPU_HAS_EXTENDED_FAULT_REGISTERS 0
+#  else
+#    define CPU_HAS_EXTENDED_FAULT_REGISTERS 1
+#  endif
 
-__attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, uint32_t exc_return,
-                                              uint32_t* r4_to_r11_stack)
+__attribute__((used)) void hard_fault_handler(uint32_t *sp, uint32_t corrupted, uint32_t exc_return,
+                                              uint32_t *r4_to_r11_stack)
 {
-#if CPU_HAS_EXTENDED_FAULT_REGISTERS
+#  if CPU_HAS_EXTENDED_FAULT_REGISTERS
     static const uint32_t BFARVALID_MASK = (0x80 << SCB_CFSR_BUSFAULTSR_Pos);
     static const uint32_t MMARVALID_MASK = (0x80 << SCB_CFSR_MEMFAULTSR_Pos);
 
     /* Copy status register contents to local stack storage, this must be
      * done before any calls to other functions to avoid corrupting the
      * register contents. */
-    uint32_t bfar  = SCB->BFAR;
+    uint32_t bfar = SCB->BFAR;
     uint32_t mmfar = SCB->MMFAR;
-    uint32_t cfsr  = SCB->CFSR;
-    uint32_t hfsr  = SCB->HFSR;
-    uint32_t dfsr  = SCB->DFSR;
-    uint32_t afsr  = SCB->AFSR;
-#endif
+    uint32_t cfsr = SCB->CFSR;
+    uint32_t hfsr = SCB->HFSR;
+    uint32_t dfsr = SCB->DFSR;
+    uint32_t afsr = SCB->AFSR;
+#  endif
 
     /* Initialize these variables even if they're never used uninitialized.
      * Fixes wrong compiler warning by gcc < 6.0. */
     uint32_t pc = 0;
     /* cppcheck-suppress variableScope
      * (reason: used within __asm__ which cppcheck doesn't pick up) */
-    uint32_t* orig_sp = NULL;
+    uint32_t *orig_sp = NULL;
 
     /* Check if the ISR stack overflowed previously. Not possible to detect
      * after output may also have overflowed it. */
@@ -356,26 +348,26 @@ __attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, 
     /* Sanity check stack pointer and give additional feedback about hard fault */
     if (corrupted) {
         puts("Stack pointer corrupted, reset to top of stack");
-        printf("active thread: %"PRIkernel_pid"\n", thread_getpid());
+        printf("active thread: %" PRIkernel_pid "\n", thread_getpid());
     }
     else {
-        uint32_t  r0 = sp[0];
-        uint32_t  r1 = sp[1];
-        uint32_t  r2 = sp[2];
-        uint32_t  r3 = sp[3];
+        uint32_t r0 = sp[0];
+        uint32_t r1 = sp[1];
+        uint32_t r2 = sp[2];
+        uint32_t r3 = sp[3];
         uint32_t r12 = sp[4];
-        uint32_t  lr = sp[5];  /* Link register. */
-                  pc = sp[6];  /* Program counter. */
-        uint32_t psr = sp[7];  /* Program status register. */
+        uint32_t lr = sp[5];  /* Link register. */
+        pc = sp[6];           /* Program counter. */
+        uint32_t psr = sp[7]; /* Program status register. */
 
         /* Reconstruct original stack pointer before fault occurred */
         orig_sp = sp + 8;
-#ifdef SCB_CCR_STKALIGN_Msk
+#  ifdef SCB_CCR_STKALIGN_Msk
         if (psr & SCB_CCR_STKALIGN_Msk) {
             /* Stack was not 8-byte aligned */
             orig_sp += 1;
         }
-#endif /* SCB_CCR_STKALIGN_Msk */
+#  endif /* SCB_CCR_STKALIGN_Msk */
         puts("\nContext before hardfault:");
 
         /* TODO: printf in ISR context might be a bad idea */
@@ -390,7 +382,7 @@ __attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, 
                "  psr: 0x%08" PRIx32 "\n\n",
                r12, lr, pc, psr);
     }
-#if CPU_HAS_EXTENDED_FAULT_REGISTERS
+#  if CPU_HAS_EXTENDED_FAULT_REGISTERS
     puts("FSR/FAR:");
     printf(" CFSR: 0x%08" PRIx32 "\n", cfsr);
     printf(" HFSR: 0x%08" PRIx32 "\n", hfsr);
@@ -404,7 +396,7 @@ __attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, 
         /* MMFAR valid flag set */
         printf("MMFAR: 0x%08" PRIx32 "\n", mmfar);
     }
-#endif
+#  endif
     puts("Misc");
     printf("EXC_RET: 0x%08" PRIx32 "\n", exc_return);
 
@@ -413,13 +405,13 @@ __attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, 
          * to check if the hard fault happened in ISR context */
         if (exc_return & 0x08) {
             kernel_pid_t active_pid = thread_getpid();
-            printf("Active thread: %"PRIi16" \"%s\"\n",
+            printf("Active thread: %" PRIi16 " \"%s\"\n",
                    active_pid, thread_getname(active_pid));
         }
         else {
             /* Print the interrupt number, NMI being -14, hardfault is -13,
              * IRQ0 is 0 and so on */
-            uint32_t psr = sp[7];  /* Program status register. */
+            uint32_t psr = sp[7]; /* Program status register. */
             printf("Hard fault occurred in ISR number %d\n",
                    (int)(psr & 0xff) - 16);
         }
@@ -429,7 +421,7 @@ __attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, 
         if (stack_left < 0) {
             printf("\nISR stack overflowed by at least %d bytes.\n", (-1 * stack_left));
         }
-        __asm__ volatile (
+        __asm__ volatile(
             "mov r0, %[sp]\n"
             "ldr r2, [r0, #8]\n"
             "ldr r3, [r0, #12]\n"
@@ -439,25 +431,23 @@ __attribute__((used)) void hard_fault_handler(uint32_t* sp, uint32_t corrupted, 
             "mov lr, r1\n"
             "mov sp, %[orig_sp]\n"
             "mov r1, %[extra_stack]\n"
-#if defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS) \
-    || defined(CPU_CORE_CORTEX_M23)
+#  if defined(CPU_CORE_CORTEX_M0) || defined(CPU_CORE_CORTEX_M0PLUS) || defined(CPU_CORE_CORTEX_M23)
             "ldm r1!, {r4-r7}\n"
             "mov r8, r4\n"
             "mov r9, r5\n"
             "mov r10, r6\n"
             "mov r11, r7\n"
             "ldm r1!, {r4-r7}\n"
-#else
+#  else
             "ldm r1, {r4-r11}\n"
-#endif
+#  endif
             "ldr r1, [r0, #4]\n"
             "ldr r0, [r0, #0]\n"
             :
-            : [sp] "r" (sp),
-              [orig_sp] "r" (orig_sp),
-              [extra_stack] "r" (r4_to_r11_stack)
-            : "r0", "r1", "r2", "r3", "r12"
-            );
+            : [sp] "r"(sp),
+              [orig_sp] "r"(orig_sp),
+              [extra_stack] "r"(r4_to_r11_stack)
+            : "r0", "r1", "r2", "r3", "r12");
     }
 
     core_panic(PANIC_HARD_FAULT, "HARD FAULT HANDLER");
@@ -477,18 +467,20 @@ void hard_fault_default(void)
     defined(CPU_CORE_CORTEX_M7)
 void mem_manage_default(void)
 {
-    uint32_t bfar  = SCB->BFAR;
+    uint32_t bfar = SCB->BFAR;
     uint32_t mmfar = SCB->MMFAR;
-    uint32_t cfsr  = SCB->CFSR;
-    uint32_t hfsr  = SCB->HFSR;
-    uint32_t dfsr  = SCB->DFSR;
-    uint32_t afsr  = SCB->AFSR;
+    uint32_t cfsr = SCB->CFSR;
+    uint32_t hfsr = SCB->HFSR;
+    uint32_t dfsr = SCB->DFSR;
+    uint32_t afsr = SCB->AFSR;
 
-#ifdef MODULE_XIPFS
-    extern void xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr);
+#  ifdef MODULE_XIPFS
+    extern int xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr);
     uintptr_t psp = __get_PSP();
-    xipfs_mem_manage_handler((void *)psp, mmfar, cfsr);
-#endif
+    if (xipfs_mem_manage_handler((void *)psp, mmfar, cfsr) == 0) {
+        return;
+    }
+#  endif
 
     printf("cfsr %lx\n", cfsr);
     printf("mmfar %lx\n", mmfar);
@@ -496,7 +488,7 @@ void mem_manage_default(void)
     printf("hfsr %lx\n", hfsr);
     printf("dfsr %lx\n", dfsr);
     printf("afsr %lx\n", afsr);
-    core_panic(PANIC_MEM_MANAGE, "MEM MANAGE HANDLER");
+    // core_panic(PANIC_MEM_MANAGE, "MEM MANAGE HANDLER");
 }
 
 void bus_fault_default(void)
@@ -528,15 +520,16 @@ __attribute__((weak, alias("dummy_handler_default"))) void isr_systick(void);
 /* define Cortex-M base interrupt vectors
  * IRQ entries -9 to -6 inclusive (offsets 0x1c to 0x2c of cortexm_base_t)
  * are reserved entries. */
-ISR_VECTOR(0) const cortexm_base_t cortex_vector_base = {
+ISR_VECTOR(0)
+const cortexm_base_t cortex_vector_base = {
     &_estack,
     {
         /* entry point of the program */
-        [ 0] = reset_handler_default,
+        [0] = reset_handler_default,
         /* [-14] non maskable interrupt handler */
-        [ 1] = nmi_handler,
+        [1] = nmi_handler,
         /* [-13] hard fault exception */
-        [ 2] = hard_fault_default,
+        [2] = hard_fault_default,
         /* [-5] SW interrupt, in RIOT used for triggering context switches */
         [10] = isr_svc,
         /* [-2] pendSV interrupt, in RIOT use to do the actual context switch */
@@ -544,30 +537,30 @@ ISR_VECTOR(0) const cortexm_base_t cortex_vector_base = {
         /* [-1] SysTick interrupt, not used in RIOT */
         [14] = isr_systick,
 
-        /* -9 to -6 reserved entries can be defined by the cpu module */
-        #ifdef CORTEXM_VECTOR_RESERVED_0X1C
+/* -9 to -6 reserved entries can be defined by the cpu module */
+#ifdef CORTEXM_VECTOR_RESERVED_0X1C
         [6] = (isr_t)(CORTEXM_VECTOR_RESERVED_0X1C),
-        #endif  /* CORTEXM_VECTOR_RESERVED_0X1C */
-        #ifdef CORTEXM_VECTOR_RESERVED_0X20
+#endif /* CORTEXM_VECTOR_RESERVED_0X1C */
+#ifdef CORTEXM_VECTOR_RESERVED_0X20
         [7] = (isr_t)(CORTEXM_VECTOR_RESERVED_0X20),
-        #endif  /* CORTEXM_VECTOR_RESERVED_0X20 */
-        #ifdef CORTEXM_VECTOR_RESERVED_0X24
+#endif /* CORTEXM_VECTOR_RESERVED_0X20 */
+#ifdef CORTEXM_VECTOR_RESERVED_0X24
         [8] = (isr_t)(CORTEXM_VECTOR_RESERVED_0X24),
-        #endif  /* CORTEXM_VECTOR_RESERVED_0X24 */
-        #ifdef CORTEXM_VECTOR_RESERVED_0X28
+#endif /* CORTEXM_VECTOR_RESERVED_0X24 */
+#ifdef CORTEXM_VECTOR_RESERVED_0X28
         [9] = (isr_t)(CORTEXM_VECTOR_RESERVED_0X28),
-        #endif  /* CORTEXM_VECTOR_RESERVED_0X28 */
+#endif /* CORTEXM_VECTOR_RESERVED_0X28 */
 
-        /* additional vectors used by M3, M33, M4(F), and M7 */
+/* additional vectors used by M3, M33, M4(F), and M7 */
 #if defined(CPU_CORE_CORTEX_M3) || defined(CPU_CORE_CORTEX_M33) || \
     defined(CPU_CORE_CORTEX_M4) || defined(CPU_CORE_CORTEX_M4F) || \
     defined(CPU_CORE_CORTEX_M7)
         /* [-12] memory manage exception */
-        [ 3] = mem_manage_default,
+        [3] = mem_manage_default,
         /* [-11] bus fault exception */
-        [ 4] = bus_fault_default,
+        [4] = bus_fault_default,
         /* [-10] usage fault exception */
-        [ 5] = usage_fault_default,
+        [5] = usage_fault_default,
         /* [-4] debug monitor exception */
         [11] = debug_mon_default,
 #endif
