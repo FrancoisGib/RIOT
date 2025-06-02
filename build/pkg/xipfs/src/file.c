@@ -1378,7 +1378,9 @@ int xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr)
     free_region(extra_region);
 
     // Check if the faulting address is in a flashpage of the nvm segment
-    if (is_address_in_range(fault_addr, (uint32_t)exec_ctx.crt0_ctx.filp_base, (uint32_t)exec_ctx.crt0_ctx.nvm_end)) {
+    // and also check if the stack frame is in the user stack
+    if (is_address_in_range(fault_addr, (uint32_t)exec_ctx.crt0_ctx.filp_base, (uint32_t)exec_ctx.crt0_ctx.nvm_end)
+     && is_address_in_range((uint32_t)isr_frame_ptr, (uint32_t)exec_ctx.stktop, (uint32_t)&exec_ctx.stkbot[EXEC_STACKSIZE_DEFAULT - 4])) {
         extra_region = configure_region((void *)fault_addr, XIPFS_NVM_PAGE_SIZE, EXC_OK, AP_RO_RO);
         status = 0;
     }
