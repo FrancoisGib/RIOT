@@ -6,9 +6,16 @@
     "editor.detectIndentation": false,
     "files.insertFinalNewline": true,
     "files.associations": {
+        "*.tsx": "typescriptreact",
         "Makefile.*": "makefile",
         "*.mk": "makefile",
-        "*.sketch": "cpp"
+        "*.sketch": "cpp",
+        "array": "c",
+        "string_view": "c",
+        "format": "c",
+        "initializer_list": "c",
+        "span": "c",
+        "cstdint": "c"
     },
     "[shellscript][c][cpp]": {
         "editor.tabSize": 4,

@@ -288,6 +288,10 @@ typedef struct crt0_ctx_s {
  * End address of the free NVM
  */
     void *nvm_end;
+    /**
+ * Start address of filp (text section first page)
+ */
+    void *filp_base;
 } crt0_ctx_t;
 
 /**
@@ -311,7 +315,7 @@ typedef struct exec_ctx_s {
      * true if the context is executed in user mode with MPU regions configured,
      * false otherwise 
      */
-    unsigned int is_safe_call;
+    unsigned char is_safe_call;
     /**
      * Number of arguments passed to the relocatable binary
      */
@@ -377,7 +381,13 @@ static void *_exec_curr_stack USED;
  */
 char *xipfs_infos_file = "/.xipfs_infos";
 
-int8_t extra_regions[] = { -1, -1 };
+/**
+ * @internal
+ * 
+ * @brief An extra MPU region for NVM when the program takes more
+ * than one flash page
+ */
+static int8_t extra_region = -1;
 
 /*
  * Helper functions
@@ -475,6 +485,7 @@ exec_ctx_crt0_init(exec_ctx_t *ctx, xipfs_file_t *filp)
     crt0_ctx->nvm_start = &filp->buf[size];
     end = (char *)filp + filp->reserved;
     crt0_ctx->nvm_end = end;
+    crt0_ctx->filp_base = filp;
 }
 
 /**
@@ -1057,7 +1068,7 @@ static crt0_ctx_t *safe_exec_relocate(exec_ctx_t *exec_ctx, void *stack)
  */
 static int safe_exec_ctx_check_align(exec_ctx_t *exec_ctx)
 {
-    if ((uint32_t)exec_ctx->stkbot % EXEC_STACKSIZE_DEFAULT != 0 || (uint32_t)exec_ctx->ram_start % XIPFS_FREE_RAM_SIZE != 0) {
+    if (!((uint32_t)exec_ctx->stkbot % EXEC_STACKSIZE_DEFAULT == 0 && (uint32_t)exec_ctx->ram_start % XIPFS_FREE_RAM_SIZE == 0)) {
         xipfs_errno = XIPFS_EALIGN;
         return -1;
     }
@@ -1129,35 +1140,26 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
     crt0_ctx_t *crt0 = safe_exec_relocate(&exec_ctx, &exec_ctx.stktop[4]);
     char *stack_top = (char *)crt0;
 
-    // stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
+    stack_top -= (uint32_t)stack_top % 8; // align user stack to 8 bytes
 
     __disable_irq();
     mpu_disable();
 
-    // int8_t text_region = configure_region(filp, filp->reserved, EXC_OK, AP_RO_RO);
-    // text_region.region = configure_region(filp, 4096, EXC_OK, AP_RO_RO);
-    // text_region.base_addr = (uint32_t)filp;
-    // text_region.size = 4096;
+    // get the biggest alignment of filp who is a multiple of the size of a flashpage
+    // to allocate the biggest nvm MPU region possible
+    uint32_t base_text_region_size = XIPFS_NVM_PAGE_SIZE;
+    while (filp->reserved % (base_text_region_size * 2) == 0) {
+        base_text_region_size *= 2;
+    }
 
-    // extra_text_region.region = -1;
-    // extra_text_region.base_addr = (uint32_t)NULL;
-    // extra_text_region.size = 0;
-
-    // uint32_t nvm_size = exec_ctx.crt0_ctx.nvm_end - exec_ctx.crt0_ctx.nvm_start;
-    // printf("reserved %p, %p, %ld\n", exec_ctx.crt0_ctx.nvm_start, exec_ctx.crt0_ctx.nvm_end, nvm_size);
-    printf("filp %p, %d\n", filp, filp->reserved);
-    printf("stack %p, %p\n", exec_ctx.stkbot, exec_ctx.stktop);
-    // int8_t nvm_region = configure_region(exec_ctx.crt0_ctx.nvm_start, nvm_size, EXC_OK, AP_RW_RW);
-    // configure_region((void *)0, 0x20000000, EXC_OK, AP_RO_RO);
-    int8_t text_region = configure_region(filp, 4096, EXC_OK, AP_RO_RO);
-    // text_region = configure_region((void *)filp + 8192, 4096, EXC_OK, AP_RO_RO);
+    int8_t text_region = configure_region(filp, base_text_region_size, EXC_OK, AP_RO_RO);
     int8_t data_region = configure_region(exec_ctx.crt0_ctx.ram_start, XIPFS_FREE_RAM_SIZE, EXC_NO, AP_RW_RW);
     int8_t stack_region = configure_region(exec_ctx.stkbot, EXEC_STACKSIZE_DEFAULT, EXC_NO, AP_RW_RW);
-    // dynamic_text_region_ptr = &extra_text_region;
+    extra_region = -1;
 
     // detect allocation errors
-    if (/*text_region == -1 ||*/ data_region == -1 || stack_region == -1) {
-        // free_region(text_region);
+    if (text_region == -1 || data_region == -1 || stack_region == -1) {
+        free_region(text_region);
         free_region(data_region);
         free_region(stack_region);
 
@@ -1172,35 +1174,29 @@ int xipfs_file_safe_exec(xipfs_file_t *filp, char *const argv[])
 
     __asm__ volatile(
         " mrs r0, msp           \n" // save main stack pointer
-        " push {r0-r11, lr} \n"     // save registers
+        " push {r0, r4-r11, lr} \n" // save registers
     );
 
     xipfs_file_safe_exec_svc(crt0, _exec_entry_point, stack_top);
 
     __asm__ volatile(
+        " pop {r1, r4-r11, lr} \n" // restore registers
+        " msr msp, r1          \n" // restore main stack pointer
         " mov %0, r0           \n" // retrieve exec status
-        " pop {r0-r11, lr} \n"     // restore registers
-        " msr msp, r0          \n" // restore main stack pointer
-        : "=r"(status));
+        : "=r"(status)
+
+    );
 
     __disable_irq();
     mpu_disable();
 
     free_region(text_region);
-    // free_region(nvm_region);
     free_region(data_region);
     free_region(stack_region);
-    free_region(extra_regions[0]);
-    free_region(extra_regions[1]);
-    extra_regions[0] = -1;
-    extra_regions[1] = -1;
-    // free_region(extra_text_region.region);
+    free_region(extra_region);
+    extra_region = -1;
 
     __enable_irq();
-
-    // text_region.region = -1;
-    // extra_text_region.region = -1;
-    // dynamic_text_region_ptr = NULL;
 
     return status;
 }
@@ -1251,8 +1247,7 @@ static void NAKED xipfs_switch_context(void *stack UNUSED,
         " msr msp, r2                                \n" // restore isr stack to end because we never return from the interrupt
         " msr control, r1                            \n" // set the control register to control arg
         " isb                                        \n"
-        " ldr r0, =" STR(EXC_RETURN_THREAD_MODE_PSP) " \n" // exec return to thread mode using psp
-
+        " ldr r0, =" STR(EXC_RETURN_THREAD_MODE_PSP) " \n"                                            // exec return to thread mode using psp
                                                      " cpsie i                                    \n" // enable interrupts
                                                      " bx r0                                      \n" // jump to exec return to thread mode with psp
     );
@@ -1316,7 +1311,9 @@ static void xipfs_exec_exit_safe(int status)
 }
 
 /**
- * @pre The function must not be used outside of SVC calls
+ * @pre The function must not be used outside of SVC calls,
+ * this function is called by the _svc_dispatcher function
+ * in cpu/cortexm_common/thread_arch.c
  * 
  * @brief Dispatch syscalls made by the safely executed binary
  * 
@@ -1327,6 +1324,7 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
 {
     int status = 0;
     unsigned int syscall_number = svc_args[0];
+
     switch (syscall_number) {
     case SYSCALL_EXIT: {
         int ret_status = svc_args[1];
@@ -1344,53 +1342,62 @@ int xipfs_syscall_dispatcher(unsigned int *svc_args)
     return status;
 }
 
-static inline void *align_address_to_region_size(void *addr, uint32_t size)
+/**
+ * @internal
+ * 
+ * @brief Check if an address is within a specified range
+ * 
+ * @param address The address to check
+ * 
+ * @param begin The beginning of the range
+ * 
+ * @param end The end of the range
+ * 
+ * @return True if the address is withing the specified range, false otherwise
+ */
+static int8_t is_address_in_range(uint32_t address, uint32_t begin, uint32_t end)
 {
-    uint32_t address = (uint32_t)addr;
-    uint32_t mask = size - 1;
-    uint32_t aligned_addr = address & ~mask;
-    return (void *)aligned_addr;
+    return address >= begin && address <= end;
 }
 
-int8_t is_in_range(uint32_t n, uint32_t begin, uint32_t size)
+/**
+ * @pre This function is called by the mem_manage_default function
+ * in cpu/cortexm_common/vectors_cortexm.c
+ * 
+ * @brief Manage MPU faults and dynamically allocate flashpages
+ * 
+ * @param isr_frame_ptr The pointer to the exception stack frame
+ */
+int xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr)
 {
-    return n >= begin && n <= begin + size;
-}
-
-int xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr UNUSED)
-{
+    int8_t status;
+    isr_stack_frame_t *frame = (isr_stack_frame_t *)isr_frame_ptr;
+    uint32_t fault_addr = cfsr & SCB_CFSR_MMARVALID_Msk ? mmfar : frame->pc;
     __disable_irq();
     mpu_disable();
+    free_region(extra_region);
 
-    isr_stack_frame_t *frame = (isr_stack_frame_t *)isr_frame_ptr;
-    printf("pc %lx, mmfar %lx, cfsr %lx\n", frame->pc, mmfar, cfsr);
-
-    static int cpt = 0;
-
-    // free_region(regions[cpt]);
-    free_region(extra_regions[cpt]);
-    if (SCB->CFSR & (1 << 7)) { // bit MMARVALID
-                                // if (mmfar < 0x20002000)
-        // regions[cpt] = configure_region((void *)mmfar, 4096, EXC_OK, AP_RW_RW);
-        extra_regions[cpt] = configure_region((void *)mmfar, 4096, EXC_OK, AP_RO_RO);
+    // Check if the faulting address is in a flashpage of the nvm segment
+    if (is_address_in_range(fault_addr, (uint32_t)exec_ctx.crt0_ctx.filp_base, (uint32_t)exec_ctx.crt0_ctx.nvm_end)) {
+        extra_region = configure_region((void *)fault_addr, XIPFS_NVM_PAGE_SIZE, EXC_OK, AP_RO_RO);
+        status = 0;
     }
     else {
-        // regions[cpt] = configure_region((void *)frame->pc, 4096, EXC_OK, AP_RW_RW);
-        extra_regions[cpt] = configure_region((void *)frame->pc, 4096, EXC_OK, AP_RO_RO);
+        status = XIPFS_MPUMEMFAULT;
     }
 
-    cpt = (cpt + 1) % 2;
+    if (extra_region == -1) {
+        status = XIPFS_ENOMPUREGION;
+    }
+
+    if (status == 0) {
+        SCB->CFSR = SCB_CFSR_MEMFAULTSR_Msk; // write-1-to-clear
+    }
 
     mpu_enable();
-
-    SCB->CFSR = SCB->CFSR; // write-1-to-clear
-
     __DSB();
     __ISB();
     __enable_irq();
 
-    // frame->xpsr |= XPSR_THUMB_MODE;
-    // void *isr_stack_top = thread_isr_stack_end();
-    // xipfs_switch_context(isr_frame_ptr, CTRL_USER_PSP, isr_stack_top);
-    return 0;
+    return status;
 }

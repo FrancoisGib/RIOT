@@ -34,11 +34,9 @@ extern "C" {
 // #define MPU_NUM_REGIONS ( (MPU->TYPE & MPU_TYPE_DREGION_Msk) >> MPU_TYPE_DREGION_Pos )
 
 #ifdef __ARM_ARCH_7EM__
-#define MPU_NUM_REGIONS 8
+#  define MPU_NUM_REGIONS 8
 #elif defined(__ARM_ARCH_8M_MAIN__) || defined(__ARM_ARCH_8M_BASE__)
-#define MPU_NUM_REGIONS 16
-#else
-#define MPU_NUM_REGIONS 0
+#  define MPU_NUM_REGIONS 16
 #endif
 
 enum {
@@ -62,34 +60,34 @@ enum {
  * @brief MPU region sizes
  */
 enum {
-    MPU_SIZE_32B  =  4, /**<  32 bytes     */
-    MPU_SIZE_64B  =  5, /**<  64 bytes     */
-    MPU_SIZE_128B =  6, /**< 128 bytes     */
-    MPU_SIZE_256B =  7, /**< 256 bytes     */
-    MPU_SIZE_512B =  8, /**< 512 bytes     */
-    MPU_SIZE_1K   =  9, /**<   1 kilobytes */
-    MPU_SIZE_2K   = 10, /**<   2 kilobytes */
-    MPU_SIZE_4K   = 11, /**<   4 kilobytes */
-    MPU_SIZE_8K   = 12, /**<   8 kilobytes */
-    MPU_SIZE_16K  = 13, /**<  16 kilobytes */
-    MPU_SIZE_32K  = 14, /**<  32 kilobytes */
-    MPU_SIZE_64K  = 15, /**<  64 kilobytes */
+    MPU_SIZE_32B = 4,   /**<  32 bytes     */
+    MPU_SIZE_64B = 5,   /**<  64 bytes     */
+    MPU_SIZE_128B = 6,  /**< 128 bytes     */
+    MPU_SIZE_256B = 7,  /**< 256 bytes     */
+    MPU_SIZE_512B = 8,  /**< 512 bytes     */
+    MPU_SIZE_1K = 9,    /**<   1 kilobytes */
+    MPU_SIZE_2K = 10,   /**<   2 kilobytes */
+    MPU_SIZE_4K = 11,   /**<   4 kilobytes */
+    MPU_SIZE_8K = 12,   /**<   8 kilobytes */
+    MPU_SIZE_16K = 13,  /**<  16 kilobytes */
+    MPU_SIZE_32K = 14,  /**<  32 kilobytes */
+    MPU_SIZE_64K = 15,  /**<  64 kilobytes */
     MPU_SIZE_128K = 16, /**< 128 kilobytes */
     MPU_SIZE_256K = 17, /**< 256 kilobytes */
     MPU_SIZE_512K = 18, /**< 512 kilobytes */
-    MPU_SIZE_1M   = 19, /**<   1 megabytes */
-    MPU_SIZE_2M   = 20, /**<   2 megabytes */
-    MPU_SIZE_4M   = 21, /**<   4 megabytes */
-    MPU_SIZE_8M   = 22, /**<   8 megabytes */
-    MPU_SIZE_16M  = 23, /**<  16 megabytes */
-    MPU_SIZE_32M  = 24, /**<  32 megabytes */
-    MPU_SIZE_64M  = 25, /**<  64 megabytes */
+    MPU_SIZE_1M = 19,   /**<   1 megabytes */
+    MPU_SIZE_2M = 20,   /**<   2 megabytes */
+    MPU_SIZE_4M = 21,   /**<   4 megabytes */
+    MPU_SIZE_8M = 22,   /**<   8 megabytes */
+    MPU_SIZE_16M = 23,  /**<  16 megabytes */
+    MPU_SIZE_32M = 24,  /**<  32 megabytes */
+    MPU_SIZE_64M = 25,  /**<  64 megabytes */
     MPU_SIZE_128M = 26, /**< 128 megabytes */
     MPU_SIZE_256M = 27, /**< 256 megabytes */
     MPU_SIZE_512M = 28, /**< 512 megabytes */
-    MPU_SIZE_1G   = 29, /**<   1 gigabytes */
-    MPU_SIZE_2G   = 30, /**<   2 gigabytes */
-    MPU_SIZE_4G   = 31, /**<   4 gigabytes */
+    MPU_SIZE_1G = 29,   /**<   1 gigabytes */
+    MPU_SIZE_2G = 30,   /**<   2 gigabytes */
+    MPU_SIZE_4G = 31,   /**<   4 gigabytes */
 };
 
 /**
@@ -99,7 +97,7 @@ enum {
  *
  * @return region size in bytes
  */
-#define MPU_SIZE_TO_BYTES(size) ( (uintptr_t)1 << ((size) + 1) )
+#define MPU_SIZE_TO_BYTES(size) ((uintptr_t)1 << ((size) + 1))
 
 /**
  * @brief generate an MPU attribute word suitable for writing to the RASR register
@@ -123,14 +121,13 @@ static inline uint32_t MPU_ATTR(
     uint32_t s,
     uint32_t size)
 {
-    return
-        (xn   << 28) |
-        (ap   << 24) |
-        (tex  << 19) |
-        (s    << 18) |
-        (c    << 17) |
-        (b    << 16) |
-        (size <<  1);
+    return (xn << 28) |
+           (ap << 24) |
+           (tex << 19) |
+           (s << 18) |
+           (c << 17) |
+           (b << 16) |
+           (size << 1);
 }
 
 /**
@@ -169,9 +166,8 @@ bool mpu_enabled(void);
  */
 int mpu_configure(uint_fast8_t region, uintptr_t base, uint_fast32_t attr);
 
-uint8_t init_mpu(void);
-int8_t configure_region(void* addr, uint32_t size, uint8_t xn, uint8_t ap);
-int8_t configure_region_if_in_range(void* addr, uint32_t size, uint8_t xn, uint8_t ap, void* begin_address, void* end_address);
+void init_mpu(void);
+int8_t configure_region(void *addr, uint32_t size, uint8_t xn, uint8_t ap);
 void free_region(int8_t region);
 
 #ifdef __cplusplus

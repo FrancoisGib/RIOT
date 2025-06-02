@@ -78,11 +78,11 @@ int mpu_configure(uint_fast8_t region, uintptr_t base, uint_fast32_t attr)
 int8_t regions[MPU_NUM_REGIONS];
 int8_t first_free_region = 0;
 
-uint8_t init_mpu(void)
+/**
+ * @brief Initialize the MPU regions
+ */
+void init_mpu(void)
 {
-    if (MPU_NUM_REGIONS == 0) {
-        return 1;
-    }
     for (uint8_t i = 0; i < (int8_t)MPU_NUM_REGIONS - 1; i++) {
         regions[i] = i + 1;
     }
@@ -93,9 +93,15 @@ uint8_t init_mpu(void)
         MPU->RBAR = 0;
         MPU->RASR = 0;
     }
-    return 0;
 }
 
+/**
+ * @pre init_mpu must be called before allocating regions
+ * 
+ * @brief Allocate a free MPU region
+ *
+ * @return The newly allocated region index, or -1 if no region is available
+ */
 int8_t alloc_region(void)
 {
     if (first_free_region == -1) {
@@ -107,6 +113,11 @@ int8_t alloc_region(void)
     return region;
 }
 
+/**
+ * @brief Free an allocated MPU region
+ *
+ * @param region The index of the region to free. Ignored if invalid
+ */
 void free_region(int8_t region)
 {
     if (region >= (int8_t)MPU_NUM_REGIONS || region == -1) {
@@ -116,21 +127,19 @@ void free_region(int8_t region)
     first_free_region = region;
 
     MPU->RNR = region;
-    // MPU->RBAR = 0;
-    MPU->RASR &= ~0b1;
+    MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
 }
 
-static uint32_t build_rasr(uint8_t xn, uint8_t ap, uint8_t size)
-{
-    return (xn << 28) | (ap << 24) | (size << 1);
-}
-
-// static uint32_t build_rbar(uint32_t addr)
-// {
-//     return addr & ~0b11111;
-// }
-
-static uint32_t next_pow2(uint32_t v)
+/**
+ * @internal
+ *
+ * @brief Round up to the next power of 2
+ *
+ * @param v The value to round
+ *
+ * @return The next power of two of the specified number
+ */
+static uint32_t next_power_of_two(uint32_t v)
 {
     v--;
     v |= v >> 1;
@@ -142,26 +151,55 @@ static uint32_t next_pow2(uint32_t v)
     return v;
 }
 
-#include <stdio.h>
-
-static uint8_t get_next_log2_from_n(uint32_t n)
+/**
+ * @internal
+ *
+ * @brief Get the base 2 logarithm of a number
+ *
+ * @param n The value to compute the logarithm for
+ *
+ * @return The base-2 logarithm of the specified number
+ */
+static uint8_t log2_n(uint32_t n)
 {
-    uint32_t pow2_size = next_pow2(n);
     uint8_t power = 0;
-    while (pow2_size >>= 1) {
+    while (n >>= 1) {
         power++;
     }
     return power;
 }
 
-static inline void *align_address_to_region_size(void *addr, uint32_t size)
+/**
+ * @internal
+ *
+ * @brief Align an address down to the specified size
+ *
+ * @param addr The address to align
+ * 
+ * @param size The size of the region (must be a power of two)
+ *
+ * @return The aligned address.
+ */
+static inline uint32_t align_address_to_region_size(void *addr, uint32_t size)
 {
-    uint32_t address = (uint32_t)addr;
-    uint32_t mask = size - 1;
-    uint32_t aligned_addr = address & ~mask;
-    return (void *)aligned_addr;
+    return (uint32_t)addr & ~(size - 1);
 }
 
+/**
+ * @brief Configure a memory region in the MPU
+ * Allocates an MPU region and configures it based on the provided parameters
+ * The size is rounded up to the nearest power of two, and the base address is aligned to the region size
+ *
+ * @param addr The base address of the memory region
+ * 
+ * @param size The size of the memory region in bytes
+ * 
+ * @param xn Execute Never flag (1 = EXC_NO, 0 = EXC_OK)
+ * 
+ * @param ap Access permission value
+ *
+ * @return The index of the configured region, or -1 on failure
+ */
 int8_t configure_region(void *addr, uint32_t size, uint8_t xn, uint8_t ap)
 {
     if (size == 0) {
@@ -174,14 +212,11 @@ int8_t configure_region(void *addr, uint32_t size, uint8_t xn, uint8_t ap)
         return -1;
     }
 
-    size = next_pow2(size);
-    void *aligned_address = align_address_to_region_size(addr, size);
-    uint32_t pow = get_next_log2_from_n(size) - 1; // -1 because MPU regions sizes are 2^n+1
+    size = next_power_of_two(size);
+    uint32_t aligned_address = align_address_to_region_size(addr, size);
+    uint32_t pow = log2_n(size) - 1; // -1 because MPU regions sizes are 2^n+1
 
-    MPU->RNR = region;
-    // MPU->RBAR = build_rbar((uint32_t)aligned_address);
-    MPU->RBAR = (uint32_t)aligned_address & MPU_RBAR_ADDR_Msk;
-    MPU->RASR = build_rasr(xn, ap, pow) | MPU_RASR_ENABLE_Msk;
-    printf("%p - %p, pow %ld, size %ld\n", aligned_address, aligned_address + size, pow, size);
+    uint32_t attr = MPU_ATTR(xn, ap, 0, 1, 0, 1, pow);
+    mpu_configure(region, aligned_address, attr);
     return region;
 }

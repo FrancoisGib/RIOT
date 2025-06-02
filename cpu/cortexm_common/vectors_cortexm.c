@@ -467,28 +467,16 @@ void hard_fault_default(void)
     defined(CPU_CORE_CORTEX_M7)
 void mem_manage_default(void)
 {
-    uint32_t bfar = SCB->BFAR;
+#  ifdef MODULE_XIPFS
     uint32_t mmfar = SCB->MMFAR;
     uint32_t cfsr = SCB->CFSR;
-    uint32_t hfsr = SCB->HFSR;
-    uint32_t dfsr = SCB->DFSR;
-    uint32_t afsr = SCB->AFSR;
-
-#  ifdef MODULE_XIPFS
     extern int xipfs_mem_manage_handler(void *isr_frame_ptr, uint32_t mmfar, uint32_t cfsr);
     uintptr_t psp = __get_PSP();
     if (xipfs_mem_manage_handler((void *)psp, mmfar, cfsr) == 0) {
         return;
     }
 #  endif
-
-    printf("cfsr %lx\n", cfsr);
-    printf("mmfar %lx\n", mmfar);
-    printf("bfar %lx\n", bfar);
-    printf("hfsr %lx\n", hfsr);
-    printf("dfsr %lx\n", dfsr);
-    printf("afsr %lx\n", afsr);
-    // core_panic(PANIC_MEM_MANAGE, "MEM MANAGE HANDLER");
+    core_panic(PANIC_MEM_MANAGE, "MEM MANAGE HANDLER");
 }
 
 void bus_fault_default(void)

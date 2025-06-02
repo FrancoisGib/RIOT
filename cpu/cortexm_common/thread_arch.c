@@ -461,8 +461,6 @@ void __attribute__((naked)) __attribute__((used)) isr_pendsv(void)
 
 #ifdef MODULE_CORTEXM_SVC
 
-#  include <stdio.h>
-
 void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 {
     /* these two variants do exactly the same, but Cortex-M3 can use Thumb2
@@ -499,23 +497,6 @@ void __attribute__((naked)) __attribute__((used)) isr_svc(void)
 #  endif
 }
 
-#  ifdef MODULE_XIPFS
-
-#    ifndef XIPFS_ENTER_SVC_NUMBER
-#      define XIPFS_ENTER_SVC_NUMBER 2
-#    endif
-
-#    ifndef XIPFS_SYSCALL_SVC_NUMBER
-#      define XIPFS_SYSCALL_SVC_NUMBER 3
-#    endif
-
-extern int xipfs_syscall_dispatcher(unsigned int *svc_args);
-extern void xipfs_exec_enter_safe(void *crt0_ctx,
-                                  void *entry_point,
-                                  void *stack_top);
-
-#  endif
-
 static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
 {
     /* stack frame:
@@ -541,17 +522,28 @@ static void __attribute__((used)) _svc_dispatch(unsigned int *svc_args)
         SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
         break;
 
-#  ifdef MODULE_XIPFS
+#  ifdef MODULE_XIPFS // XIPFS module SVC calls
+
+#    ifndef XIPFS_ENTER_SVC_NUMBER
+#      define XIPFS_ENTER_SVC_NUMBER 2
+#    endif
     case XIPFS_ENTER_SVC_NUMBER: {
         void *crt0_ctx = (void *)svc_args[0];
         void *entry_point = (void *)svc_args[1];
         void *stack_top = (void *)svc_args[2];
+        extern void xipfs_exec_enter_safe(void *crt0_ctx,
+                                          void *entry_point,
+                                          void *stack_top);
         xipfs_exec_enter_safe(crt0_ctx, entry_point, stack_top);
         break;
     }
+
+#    ifndef XIPFS_SYSCALL_SVC_NUMBER
+#      define XIPFS_SYSCALL_SVC_NUMBER 3
+#    endif
     case XIPFS_SYSCALL_SVC_NUMBER: {
-        int res = xipfs_syscall_dispatcher(svc_args);
-        __asm__ volatile("mov r0, %0" ::"r"(res));
+        extern int xipfs_syscall_dispatcher(unsigned int *svc_args);
+        __asm__ volatile("mov r0, %0" ::"r"(xipfs_syscall_dispatcher(svc_args)));
         break;
     }
 #  endif

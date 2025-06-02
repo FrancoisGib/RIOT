@@ -120,6 +120,10 @@ enum xipfs_errno_e {
      */
     XIPFS_ENOMPUREGION,
     /**
+     * An MPU fault occured
+     */
+    XIPFS_MPUMEMFAULT,
+    /**
      * Error number - must be the last element
      */
     XIPFS_ENUM,
